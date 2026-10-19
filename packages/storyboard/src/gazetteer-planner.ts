@@ -61,7 +61,7 @@ export class GazetteerPlanner implements PlannerProvider {
       case "country":
         return { ...base, title: m.hit.name, cameraMove: "zoom_to", zoomStart: Math.max(1, fit - 1.5), zoomEnd: fit, narration: this.narrationFor("country", name, input), highlightCountries: m.hit.iso3 ? [m.hit.iso3] : [], rivers: [], labels: [{ text: name, placeName: m.hit.name }] };
       case "river":
-        return { ...base, durationSeconds: 7, title: `${name} river`, cameraMove: "follow_route", zoomStart: fit, zoomEnd: Math.min(10, fit + 0.6), narration: this.narrationFor("river", name, input), highlightCountries: countryHighlight, rivers: [name], labels: [] };
+        return { ...base, durationSeconds: 7, title: input.language === "hi" ? `${name} नदी` : `${name} river`, cameraMove: "follow_route", zoomStart: fit, zoomEnd: Math.min(10, fit + 0.6), narration: this.narrationFor("river", name, input), highlightCountries: countryHighlight, rivers: [name], labels: [] };
       case "lake":
         return { ...base, title: m.hit.name, cameraMove: "zoom_to", zoomStart: fit - 1, zoomEnd: fit, narration: this.narrationFor("lake", name, input), highlightCountries: countryHighlight, rivers: [], labels: [{ text: name, placeName: m.hit.name }] };
       case "place":
@@ -83,7 +83,7 @@ export class GazetteerPlanner implements PlannerProvider {
 
     const scenes: DraftScene[] = [
       {
-        title: "Opening",
+        title: input.language === "hi" ? "शुरुआत" : "Opening",
         durationSeconds: 6,
         placeName: primary.hit.name,
         placeKind: primary.hit.kind === "country" ? "country" : primary.hit.kind,
@@ -99,7 +99,7 @@ export class GazetteerPlanner implements PlannerProvider {
     ];
     for (const m of matches) scenes.push(this.sceneFor(m, input, primary));
     scenes.push({
-      title: "Closing",
+      title: input.language === "hi" ? "समापन" : "Closing",
       durationSeconds: 5,
       placeName: primary.hit.name,
       placeKind: primary.hit.kind === "country" ? "country" : primary.hit.kind,
