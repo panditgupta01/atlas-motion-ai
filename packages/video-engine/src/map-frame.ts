@@ -1,17 +1,15 @@
 import path from "node:path";
 import fs from "node:fs";
-import { fileURLToPath } from "node:url";
 import { createCanvas, GlobalFonts, type Canvas, type SKRSContext2D } from "@napi-rs/canvas";
 import { geoDistance, geoGraticule10, geoOrthographic, geoPath, type GeoPermissibleObjects } from "d3-geo";
 import type { Feature, Geometry, LineString, MultiLineString, Position } from "geojson";
-import { clipFeatures, getCountryFeature, getRiverFeatures, loadDataset, loadSimplified, type BBox, type DatasetId, type PreparedFeature } from "@atlas/geo";
+import { clipFeatures, findRepoRoot, getCountryFeature, getRiverFeatures, loadDataset, loadSimplified, type BBox, type DatasetId, type PreparedFeature } from "@atlas/geo";
 import type { FormatLayout, FrameSize, Overlay, Scene } from "@atlas/shared";
 import { scaleForZoom, visibleRadiusDegrees, type CameraState } from "./camera.js";
 
-const here = path.dirname(fileURLToPath(import.meta.url));
 
 export function fontsDir(): string {
-  return process.env.ATLAS_FONTS_DIR ? path.resolve(process.env.ATLAS_FONTS_DIR) : path.resolve(here, "../../../assets/fonts");
+  return process.env.ATLAS_FONTS_DIR ? path.resolve(process.env.ATLAS_FONTS_DIR) : path.join(findRepoRoot(), "assets", "fonts");
 }
 
 let fontsRegistered = false;
@@ -184,7 +182,7 @@ export class MapFrameRenderer {
 
   render(input: FrameRenderInput): Canvas {
     const { ctx, size } = this;
-    const { camera, scene, t, layout } = input;
+    const { camera, scene, t } = input;
     const scale = scaleForZoom(camera.zoom, size);
     const projection = geoOrthographic()
       .rotate([-camera.longitude, -camera.latitude, camera.roll])

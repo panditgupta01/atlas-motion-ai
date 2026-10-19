@@ -1,5 +1,5 @@
 import type { ErrorRequestHandler, RequestHandler } from "express";
-import { ZodError, type ZodType } from "zod";
+import { ZodError, type ZodType, type infer as Infer } from "zod";
 import { PlannerError } from "@atlas/storyboard";
 import { UsageLimitError } from "@atlas/server-core";
 import { InvalidTransitionError } from "@atlas/shared";
@@ -19,7 +19,7 @@ export class AppError extends Error {
 export const notFound = (what = "Resource") => new AppError(404, "not_found", `${what} not found.`);
 
 /** Parse request data with a Zod schema, turning failures into a 400 with field details. */
-export function parse<T extends ZodType>(schema: T, data: unknown): import("zod").infer<T> {
+export function parse<T extends ZodType>(schema: T, data: unknown): Infer<T> {
   const r = schema.safeParse(data);
   if (!r.success) {
     throw new AppError(

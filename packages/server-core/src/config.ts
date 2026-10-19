@@ -1,10 +1,27 @@
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 import { z } from "zod";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-export const REPO_ROOT = path.resolve(here, "../../..");
+
+/**
+ * Repository root: ATLAS_ROOT, else the nearest parent containing pnpm-workspace.yaml.
+ * Works both from TypeScript sources and from bundled dist/ files.
+ */
+function findRepoRoot(from: string = here): string {
+  if (process.env.ATLAS_ROOT) return path.resolve(process.env.ATLAS_ROOT);
+  let dir = from;
+  for (;;) {
+    if (fs.existsSync(path.join(dir, "pnpm-workspace.yaml"))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) return process.cwd();
+    dir = parent;
+  }
+}
+
+export const REPO_ROOT = findRepoRoot();
 
 const bool = z
   .string()
@@ -21,6 +38,8 @@ const envSchema = z.object({
   COOKIE_SECURE: bool,
   CORS_ORIGINS: z.string().default("http://localhost:5173"),
   PUBLIC_WEB_URL: z.string().default("http://localhost:5173"),
+  /** Optional: serve the built web app (apps/web/dist) from the API process on the same origin. */
+  WEB_DIST_DIR: z.string().optional(),
 
   STORAGE_DRIVER: z.enum(["local", "s3"]).default("local"),
   STORAGE_LOCAL_DIR: z.string().default(path.join(REPO_ROOT, "storage")),

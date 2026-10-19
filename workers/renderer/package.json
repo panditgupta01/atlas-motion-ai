@@ -14,9 +14,17 @@
     "@atlas/server-core": "workspace:*",
     "@atlas/shared": "workspace:*",
     "@atlas/video-engine": "workspace:*",
+    "@aws-sdk/client-s3": "^3.1152.0",
+    "@aws-sdk/s3-request-presigner": "^3.1152.0",
+    "@napi-rs/canvas": "^1.0.11",
+    "@turf/turf": "^7.4.0",
     "bullmq": "^6.3.17",
+    "d3-geo": "^3.1.1",
+    "dotenv": "^18.0.8",
     "ioredis": "^6.0.0",
-    "mongoose": "^9.11.2"
+    "mongoose": "^9.11.2",
+    "pino": "^10.4.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "tsup": "^9.0.0"

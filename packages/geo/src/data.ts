@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Feature, FeatureCollection, Geometry, Position } from "geojson";
+import type { Feature, FeatureCollection, Geometry, LineString, MultiLineString, MultiPolygon, Polygon, Position } from "geojson";
 import { bboxClip } from "@turf/turf";
 
 export type BBox = [number, number, number, number];
@@ -30,11 +30,25 @@ export type DatasetId = keyof typeof DATASETS;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
+/**
+ * Repository root: ATLAS_ROOT, else the nearest parent containing pnpm-workspace.yaml.
+ * Works both from TypeScript sources and from bundled dist/ files.
+ */
+export function findRepoRoot(from: string = here): string {
+  if (process.env.ATLAS_ROOT) return path.resolve(process.env.ATLAS_ROOT);
+  let dir = from;
+  for (;;) {
+    if (fs.existsSync(path.join(dir, "pnpm-workspace.yaml"))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) return process.cwd();
+    dir = parent;
+  }
+}
+
 /** Data directory: ATLAS_GEO_DATA_DIR, else `<repo>/data/natural-earth`. */
 export function geoDataDir(): string {
   if (process.env.ATLAS_GEO_DATA_DIR) return path.resolve(process.env.ATLAS_GEO_DATA_DIR);
-  // packages/geo/src -> repo root
-  return path.resolve(here, "../../../data/natural-earth");
+  return path.join(findRepoRoot(), "data", "natural-earth");
 }
 
 export function datasetPath(id: DatasetId): string {
@@ -197,7 +211,7 @@ export function clipFeatures(features: PreparedFeature[], window: BBox): Prepare
       out.push(f);
       continue;
     }
-    const clipped = bboxClip(f.feature as Feature<any>, window) as Feature<Geometry, Record<string, unknown>>;
+    const clipped = bboxClip(f.feature as Feature<LineString | MultiLineString | Polygon | MultiPolygon>, window) as Feature<Geometry, Record<string, unknown>>;
     out.push({ feature: clipped, bbox: f.bbox });
   }
   return out;

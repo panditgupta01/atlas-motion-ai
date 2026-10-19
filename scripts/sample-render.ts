@@ -3,6 +3,9 @@
  * queue). Useful to verify FFmpeg, fonts, map data and TTS on a machine.
  *
  *   pnpm sample:render -- --prompt "Nepal and the Koshi river" --lang hi --duration 20 --quality draft
+ *
+ * --publish copies videos that pass validation into apps/web/public/samples and
+ * lists them in manifest.json, which the landing page reads. Invalid files are never published.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -19,6 +22,8 @@ import {
 } from "@atlas/video-engine";
 
 const { values } = parseArgs({
+  // pnpm forwards a literal "--" before script arguments; ignore it.
+  args: process.argv.slice(2).filter((a) => a !== "--"),
   options: {
     prompt: { type: "string", default: "A short map story about Nepal, the Koshi river and Kathmandu." },
     lang: { type: "string", default: "en" },
@@ -27,6 +32,7 @@ const { values } = parseArgs({
     fps: { type: "string", default: "30" },
     out: { type: "string", default: "storage/samples" },
     formats: { type: "string", default: "9:16,16:9" },
+    publish: { type: "boolean", default: false },
   },
 });
 
@@ -48,6 +54,7 @@ const plan = await planStoryboard(new GazetteerPlanner(), {
   sourceUrls: [],
 });
 const sb = plan.storyboard;
+const published: { file: string; format: AspectFormat; prompt: string; language: string; durationSeconds: number; renderedAt: string }[] = [];
 console.log(`Planned ${sb.scenes.length} scenes (${sb.durationSeconds}s). Errors: ${plan.validation.errors.length}, warnings: ${plan.validation.warnings.length}`);
 fs.writeFileSync(path.join(outDir, "storyboard.json"), JSON.stringify(sb, null, 2));
 
@@ -85,4 +92,17 @@ for (const format of formats) {
   const report = await validateVideoFile(output, { ...size, fps, durationSeconds: sb.durationSeconds, requireAudio: tts.isConfigured() });
   console.log(`${format}: ${report.ok ? "VALID" : "INVALID"} ${output}`, report.issues, report.info?.video, report.info?.audio, `${report.info?.durationSeconds}s`);
   void FORMAT_LAYOUTS;
+  if (values.publish && report.ok) {
+    const samplesDir = path.resolve("apps/web/public/samples");
+    fs.mkdirSync(samplesDir, { recursive: true });
+    const file = path.basename(output);
+    fs.copyFileSync(output, path.join(samplesDir, file));
+    published.push({ file, format, prompt: values.prompt!, language, durationSeconds: sb.durationSeconds, renderedAt: new Date().toISOString() });
+  }
+}
+
+if (values.publish) {
+  const manifest = path.resolve("apps/web/public/samples/manifest.json");
+  fs.writeFileSync(manifest, JSON.stringify({ items: published }, null, 2));
+  console.log(`Published ${published.length} validated sample(s) to ${path.dirname(manifest)}`);
 }

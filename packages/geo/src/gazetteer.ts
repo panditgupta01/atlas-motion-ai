@@ -26,6 +26,25 @@ export const RIVER_ALIASES: Record<string, string> = {
   narayani: "Gandak",
   teesta: "Tista",
   "yarlung tsangpo": "Yarlung",
+  // Hindi names. Natural Earth has no name_hi for rivers, so common Devanagari spellings map to the dataset names.
+  "कोसी": "Sapt",
+  "कोशी": "Sapt",
+  "सप्तकोशी": "Sapt",
+  "गंडक": "Gandak",
+  "गंडकी": "Gandak",
+  "नारायणी": "Gandak",
+  "करनाली": "Ghäghara",
+  "घाघरा": "Ghäghara",
+  "गंगा": "Ganges",
+  "यमुना": "Yamuna",
+  "ब्रह्मपुत्र": "Brahmaputra",
+  "तीस्ता": "Tista",
+  "सिंधु": "Indus",
+  "कृष्णा": "Krishna",
+  "नर्मदा": "Narmada",
+  "कावेरी": "Cauvery",
+  "चंबल": "Chambal",
+  "सतलुज": "Sutlej",
 };
 
 const str = (v: unknown): string | undefined => (typeof v === "string" && v.trim() ? v.trim() : undefined);
@@ -156,6 +175,16 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/**
+ * Natural Earth gives some features everyday words as alternate names (a lake
+ * whose English name is "Bay", rivers called "Red" or "New"). In free text these
+ * only count when followed by the feature type, e.g. "Red River".
+ */
+const GENERIC_WORDS = new Set([
+  "bay", "lake", "river", "sea", "gulf", "delta", "island", "mount", "new", "great", "little", "black", "white", "red",
+  "blue", "green", "long", "grand", "big", "lower", "upper", "north", "south", "east", "west", "central", "valley", "da", "salt", "clear",
+]);
+
 export interface TextMatch {
   hit: GazetteerHit;
   matched: string;
@@ -182,6 +211,11 @@ export function findPlacesInText(text: string): TextMatch[] {
       const m = re.exec(lower);
       if (!m) continue;
       const index = m.index + (m[1]?.length ?? 0);
+      if (GENERIC_WORDS.has(key)) {
+        const after = lower.slice(index + key.length);
+        const typeWord = e.kind === "river" ? /^\s+river\b/ : e.kind === "lake" ? /^\s+lake\b/ : null;
+        if (!typeWord || !typeWord.test(after)) continue;
+      }
       if (e.kind === "place") {
         const original = text.slice(index, index + key.length);
         if (original[0] !== original[0]?.toUpperCase()) continue;

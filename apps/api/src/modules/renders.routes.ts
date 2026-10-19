@@ -1,5 +1,5 @@
 import { Router } from "express";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import {
   assertTransition,
   createRenderSchema,
@@ -25,7 +25,8 @@ export function renderRoutes(deps: AppDeps): { projectScoped: Router; renderScop
   const renderLimiter = rateLimit({
     windowMs: 60_000,
     limit: deps.config.NODE_ENV === "test" ? 1000 : 5,
-    keyGenerator: (req) => String(req.user?._id ?? req.ip),
+    // Routes are behind requireAuth, so the user id is the key; the IP fallback is normalised for IPv6.
+    keyGenerator: (req) => (req.user ? String(req.user._id) : ipKeyGenerator(req.ip ?? "")),
     standardHeaders: "draft-7",
     legacyHeaders: false,
   });

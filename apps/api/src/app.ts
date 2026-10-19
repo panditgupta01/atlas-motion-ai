@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import express from "express";
 import helmet from "helmet";
 import cors from "cors";
@@ -62,6 +64,14 @@ export function createApp(deps: AppDeps): express.Express {
   v1.use("/assets", authed, assetRoutes(deps));
 
   app.use("/api/v1", v1);
+
+  // Single-origin deployment: serve the built web app and fall back to index.html for client routes.
+  const webDir = deps.config.WEB_DIST_DIR ? path.resolve(deps.config.WEB_DIST_DIR) : null;
+  if (webDir && fs.existsSync(path.join(webDir, "index.html"))) {
+    app.use(express.static(webDir, { index: false, maxAge: "1h", setHeaders: (res, file) => file.includes(`${path.sep}assets${path.sep}`) && res.setHeader("Cache-Control", "public, max-age=31536000, immutable") }));
+    app.get(/^\/(?!api\/).*/, (_req, res) => res.sendFile(path.join(webDir, "index.html")));
+  }
+
   app.use(notFoundHandler);
   app.use(errorHandler);
   return app;

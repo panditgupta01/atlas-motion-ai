@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { findPlacesInText } from "@atlas/geo";
 import type { Scene, Storyboard } from "@atlas/shared";
-import { z } from "zod";
+import type { z } from "zod";
 import {
   PlannerError,
   draftSceneSchema,

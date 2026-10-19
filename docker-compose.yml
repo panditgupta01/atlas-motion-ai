@@ -1,0 +1,65 @@
+# Development: `docker compose up -d mongo redis`, then run the app with pnpm (see README).
+# Full stack:  `docker compose --profile app up --build`
+services:
+  mongo:
+    image: mongo:8.0
+    restart: unless-stopped
+    ports: ["127.0.0.1:27017:27017"]
+    volumes: [mongo-data:/data/db]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 }).ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    ports: ["127.0.0.1:6379:6379"]
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    profiles: [app]
+    build: .
+    command: ["node", "apps/api/dist/server.js"]
+    env_file: [.env]
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/atlasmotion
+      REDIS_URL: redis://redis:6379
+      STORAGE_LOCAL_DIR: /app/storage
+      WORK_DIR: /app/storage/tmp
+      WEB_DIST_DIR: /app/apps/web/dist
+      CORS_ORIGINS: http://localhost:4000
+      PUBLIC_WEB_URL: http://localhost:4000
+    ports: ["127.0.0.1:4000:4000"]
+    volumes: [media:/app/storage]
+    depends_on:
+      mongo: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  worker:
+    profiles: [app]
+    build: .
+    command: ["node", "workers/renderer/dist/worker.js"]
+    env_file: [.env]
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/atlasmotion
+      REDIS_URL: redis://redis:6379
+      # The local storage driver needs the same volume as the API. Use STORAGE_DRIVER=s3 to run them on different hosts.
+      STORAGE_LOCAL_DIR: /app/storage
+      WORK_DIR: /app/storage/tmp
+    volumes: [media:/app/storage]
+    depends_on:
+      mongo: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+volumes:
+  mongo-data:
+  redis-data:
+  media:
