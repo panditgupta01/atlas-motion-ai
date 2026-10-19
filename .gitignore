@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.env
+.env.local
+storage/*
+!storage/.gitkeep
+coverage/
+*.log
+.DS_Store
+tests/.tmp/
+# Downloaded by scripts/fetch-assets.sh
+data/natural-earth/*.geojson
+assets/fonts/*.ttf

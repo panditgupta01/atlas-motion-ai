@@ -1,0 +1,8 @@
+packages:
+  - "apps/*"
+  - "workers/*"
+  - "packages/*"
+onlyBuiltDependencies:
+  - esbuild
+  - "@napi-rs/canvas"
+  - bcryptjs

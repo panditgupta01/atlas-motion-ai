@@ -1,0 +1,40 @@
+{
+  "name": "atlas-motion-ai",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "dev": "pnpm -r --parallel --filter @atlas/api --filter @atlas/renderer-worker --filter @atlas/web dev",
+    "dev:api": "pnpm --filter @atlas/api dev",
+    "dev:worker": "pnpm --filter @atlas/renderer-worker dev",
+    "dev:web": "pnpm --filter @atlas/web dev",
+    "build": "pnpm -r build",
+    "start:api": "pnpm --filter @atlas/api start",
+    "start:worker": "pnpm --filter @atlas/renderer-worker start",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "check:env": "tsx scripts/check-env.ts",
+    "sample:render": "tsx scripts/sample-render.ts"
+  },
+  "devDependencies": {
+    "@atlas/geo": "workspace:*",
+    "@atlas/shared": "workspace:*",
+    "@atlas/storyboard": "workspace:*",
+    "@atlas/video-engine": "workspace:*",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.5",
+    "eslint": "^10.13.0",
+    "globals": "^17.13.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.71.2",
+    "vitest": "^5.0.5"
+  }
+}
