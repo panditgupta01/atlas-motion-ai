@@ -84,6 +84,7 @@ Requested on 2026-10-19: "i mean in a goggle map studio", read as the Google Ear
 
 - Google's Photorealistic 3D Tiles allow only promotional videos of 30 s or less about the app, and forbid caching. Google Earth Studio offers no licence for commercial use of its imagery. So the 3D view is built from open sources: Copernicus Sentinel-2 imagery, Terrain Tiles on AWS elevation, NASA Blue Marble and Natural Earth.
 - Verified: the unit tests for the 3D camera, regions and terrain switches, the 3D render e2e (Chromium, validated MP4, lit centre pixel), the Chromium-missing fallback, and the terrain route's sign-in check. The whole suite (102 tests), lint and typecheck pass.
+- Sample: `pnpm sample:render -- --prompt "Nepal and the Koshi river" --lang hi --duration 30 --quality draft --fps 24 --formats 16:9` with `SATELLITE_PROVIDER=none` produced a 30 s, 960×540, 24 fps video with narration that passed validation (720 frames, about 30 minutes to render).
 - Speed in this container: about 4.5 s per 960×540 frame (SwiftShader, 4 cores), with about 20 s of tile warm-up on the first frame of a session.
 
 ## External setup needed for production
