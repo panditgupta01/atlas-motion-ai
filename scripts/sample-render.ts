@@ -33,6 +33,7 @@ const { values } = parseArgs({
     out: { type: "string", default: "storage/samples" },
     formats: { type: "string", default: "9:16,16:9" },
     publish: { type: "boolean", default: false },
+    basemap: { type: "string", default: "satellite" },
   },
 });
 
@@ -82,8 +83,8 @@ for (const format of formats) {
   for (const [i, scene] of sb.scenes.entries()) {
     const output = path.join(workDir, `${format.replace(":", "x")}-${scene.id}.mp4`);
     const t0 = Date.now();
-    const r = await renderer.renderScene({ scene, previous: sb.scenes[i - 1], format, quality, fps, output });
-    console.log(`  ${format} ${scene.id}: ${r.frames} frames in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+    const r = await renderer.renderScene({ scene, previous: sb.scenes[i - 1], format, quality, fps, output, basemap: values.basemap === "vector" ? "vector" : "satellite" });
+    console.log(`  ${format} ${scene.id}: ${r.frames} frames in ${((Date.now() - t0) / 1000).toFixed(1)}s; imagery: ${r.imagery.attribution.join(", ") || "none"}${r.imagery.detailZooms.length ? ` (detail z${r.imagery.detailZooms.join(",")})` : ""}${r.imagery.note ? ` [${r.imagery.note}]` : ""}`);
     clips.push(output);
   }
   const output = path.join(outDir, `sample-${language}-${format.replace(":", "x")}.mp4`);

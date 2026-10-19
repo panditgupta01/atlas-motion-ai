@@ -42,6 +42,21 @@ describe.skipIf(!hasMongo)("auth and projects API (real MongoDB)", () => {
     expect(res.status).toBe(403);
   });
 
+  it("describes the satellite imagery and serves preview tiles only to signed-in users", async () => {
+    const info = await request(env.app).get("/api/v1/geo/imagery");
+    expect(info.status).toBe(200);
+    expect(info.body.attribution).toContain("NASA Blue Marble");
+    expect(JSON.stringify(info.body)).not.toMatch(/key|https?:\/\//i);
+    expect((await request(env.app).get("/api/v1/geo/imagery/tiles/2/2/1")).status).toBe(401);
+    const a = await signedInAgent(env.app);
+    const tile = await a.get("/api/v1/geo/imagery/tiles/2/2/1.jpg");
+    expect(tile.status).toBe(200);
+    expect(tile.headers["content-type"]).toBe("image/jpeg");
+    expect(tile.headers["x-imagery-source"]).toBe("base");
+    expect((await a.get("/api/v1/geo/imagery/tiles/2/7/1")).status).toBe(404);
+    expect((await a.get("/api/v1/geo/imagery/tiles/x/1/1")).status).toBe(404);
+  });
+
   it("requires a session for project routes", async () => {
     expect((await request(env.app).get("/api/v1/projects")).status).toBe(401);
   });

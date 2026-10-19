@@ -22,10 +22,19 @@ export function sha256(s: string): string {
  * start point), format, quality, fps and renderer version. Narration text and
  * claims are excluded because captions are added at assembly time.
  */
-export function sceneCacheKey(scene: Scene, previous: Scene | undefined, format: AspectFormat, quality: Quality, fps: number): string {
+export function sceneCacheKey(
+  scene: Scene,
+  previous: Scene | undefined,
+  format: AspectFormat,
+  quality: Quality,
+  fps: number,
+  /** Basemap and imagery provider tag, which change the pixels too. */
+  look: { basemap?: string; imagery?: string } = {},
+): string {
   return sha256(
     stableStringify({
       v: MAP_RENDERER_VERSION,
+      look,
       format,
       quality,
       fps,

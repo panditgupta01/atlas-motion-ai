@@ -50,6 +50,8 @@ export const openApiDocument = {
     "/geo/search": { get: op("Search the Natural Earth gazetteer (q, kind, limit)") },
     "/geo/layers/{layer}": { get: op("GeoJSON layers for the map preview: countries, rivers, lakes") },
     "/geo/countries/{iso3}": { get: op("Look up a country by ISO 3166-1 alpha-3 code") },
+    "/geo/imagery": { get: op("Satellite imagery in use: provider, licence, credits and preview zoom limit (no keys or upstream URLs)") },
+    "/geo/imagery/tiles/{z}/{x}/{y}": { get: op("Signed-in only. 256 px satellite tile for the editor preview, proxied from the configured provider or generated from NASA Blue Marble") },
     "/geo/overlay-features": { get: op("Exact shapes the renderer uses for highlighted countries (countries=IND,NPL) and rivers (rivers=Ganges|Sapt)") },
   },
 };

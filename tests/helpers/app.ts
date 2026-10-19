@@ -6,7 +6,7 @@ import mongoose from "mongoose";
 import request from "supertest";
 import { connectDatabase, createLogger, LocalStorage, loadConfig, UsageService, type AppConfig } from "@atlas/server-core";
 import { PlannerRegistry } from "@atlas/storyboard";
-import { EspeakTtsProvider, TtsRegistry } from "@atlas/video-engine";
+import { EspeakTtsProvider, imageryConfigFromEnv, ImageryTileService, TtsRegistry } from "@atlas/video-engine";
 import { createApp } from "../../apps/api/src/app";
 import type { AppDeps, RenderQueuePort } from "../../apps/api/src/deps";
 
@@ -77,6 +77,7 @@ export async function createTestEnv(opts: { queue?: RenderQueuePort; overrides?:
     queue: opts.queue ?? new RecordingQueue(),
     planners: new PlannerRegistry({ defaultProvider: "gazetteer" }),
     tts: new TtsRegistry([new EspeakTtsProvider()]),
+    imagery: new ImageryTileService({ ...imageryConfigFromEnv(), provider: "none" }),
     usage: new UsageService({ rendersPerDay: config.USAGE_RENDERS_PER_DAY, plansPerHour: config.USAGE_PLANS_PER_HOUR }),
   };
   const app = createApp(deps);

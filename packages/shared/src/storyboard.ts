@@ -138,6 +138,9 @@ export type OverlayType = Overlay["type"];
 
 export const SCENE_STATUSES = ["planned", "edited", "approved"] as const;
 
+export const BASEMAPS = ["satellite", "vector"] as const;
+export type Basemap = (typeof BASEMAPS)[number];
+
 export const MIN_SCENE_SECONDS = 2;
 export const MAX_SCENE_SECONDS = 30;
 export const MAX_PROJECT_SECONDS = 180;
@@ -166,6 +169,8 @@ export const storyboardSchema = z.object({
   durationSeconds: z.number().min(MIN_SCENE_SECONDS).max(MAX_PROJECT_SECONDS),
   formats: z.array(aspectFormatSchema).min(1).max(2),
   style: visualStyleSchema.default("documentary"),
+  /** Satellite imagery under the overlays, or the flat vector map. */
+  basemap: z.enum(BASEMAPS).default("satellite"),
   fps: z.union([z.literal(24), z.literal(25), z.literal(30)]).default(30),
   scenes: z.array(sceneSchema).min(1).max(MAX_SCENES),
   sources: z.array(sourceRefSchema).max(100).default([]),

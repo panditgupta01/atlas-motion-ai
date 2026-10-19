@@ -1,6 +1,6 @@
 import type { AppConfig, Logger, StorageDriver, UsageService } from "@atlas/server-core";
 import type { PlannerRegistry } from "@atlas/storyboard";
-import type { TtsRegistry } from "@atlas/video-engine";
+import type { ImageryTileService, TtsRegistry } from "@atlas/video-engine";
 
 /** Queue operations the API needs; BullMQ in production, a recorder in unit tests. */
 export interface RenderQueuePort {
@@ -19,4 +19,6 @@ export interface AppDeps {
   planners: PlannerRegistry;
   tts: TtsRegistry;
   usage: UsageService;
+  /** Satellite tiles for the editor preview. */
+  imagery: ImageryTileService;
 }

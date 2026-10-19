@@ -5,7 +5,7 @@ Turn a natural-language prompt into an animated map documentary video. AtlasMoti
 ```
 prompt ─▶ planner (Claude or offline gazetteer) ─▶ storyboard (versioned schema, validated)
        ─▶ editor (scenes, overlays, claims, sources) ─▶ render queue (BullMQ)
-       ─▶ worker: map frames (Skia + d3-geo, Natural Earth) ─▶ FFmpeg ─▶ ffprobe validation ─▶ download
+       ─▶ worker: map frames (satellite imagery + Natural Earth overlays, Skia + d3-geo) ─▶ FFmpeg ─▶ ffprobe validation ─▶ download
 ```
 
 ## What works today
@@ -22,10 +22,14 @@ prompt ─▶ planner (Claude or offline gazetteer) ─▶ storyboard (versioned
   - Gazetteer search for places, rivers and countries.
   - Overlays: title card, label, marker, country highlight, river, route, arrow and legend.
   - Claims, sources, and a live validation panel.
-  - A MapLibre globe preview that uses the same camera timeline as the renderer.
+  - A MapLibre globe preview that uses the same camera timeline and imagery as the renderer. Tiles reach the browser through the API, so provider keys never leave the server.
   - Saves use optimistic concurrency. You can regenerate a single scene.
+- **Satellite base map.** See [Satellite imagery](#satellite-imagery) below.
+  - Frames show satellite imagery under the borders, rivers and overlays. Projects can switch to the flat vector map ("Map") in the editor.
+  - The globe and wide shots use NASA Blue Marble, bundled and offline. Close-ups use detail tiles from a provider whose licence allows video, fetched by the server and cached on disk.
+  - Every frame credits the imagery it actually drew.
 - **Rendering.**
-  - A background worker draws every frame from vector data, encodes per-scene H.264 clips, and caches them by content hash.
+  - A background worker draws every frame, encodes per-scene H.264 clips, and caches them by content hash.
   - It then adds narration (espeak-ng) and an optional generated ambience bed, normalises loudness, and burns in captions (libass) or writes an `.srt`.
   - Each output is validated with ffprobe plus a full decode. Only files that pass validation are listed as outputs.
 - **Jobs.**
@@ -41,7 +45,9 @@ prompt ─▶ planner (Claude or offline gazetteer) ─▶ storyboard (versioned
 
 ## What it does not do (yet)
 
-- No 3D terrain or satellite imagery. The renderer is 2D (orthographic globe and map). `getCapabilities().terrain3d` is `false`.
+- No 3D terrain. The renderer is 2D (orthographic globe and map). `getCapabilities().terrain3d` is `false`.
+- Without detail tiles (no network to the provider, or `SATELLITE_PROVIDER=none`), close-ups use NASA Blue Marble at about 10 km per pixel and look soft. The render log says when this happened, and such clips are not reused once tiles are reachable.
+- Satellite frames take longer to draw than vector frames: about 0.1 s per 1080p frame from Blue Marble, and up to about 0.2 s per frame with detail tiles, on one core.
 - No flood extents, river basins, population data or live data. No such dataset is bundled. River lines are Natural Earth centerlines.
 - No ocean or sea names. "Bay of Bengal", for example, is not in the gazetteer and will not become a scene.
 - Hindi map labels appear only where Natural Earth provides `name_hi`. Otherwise the English name is used. Hindi river names are matched through a small alias list (`packages/geo/src/gazetteer.ts`).
@@ -49,6 +55,24 @@ prompt ─▶ planner (Claude or offline gazetteer) ─▶ storyboard (versioned
 - The S3 storage driver is implemented but has not been tested against a real bucket.
 - The Claude planner is covered by tests against an SDK test double only. It has not been run against the live API in this repository.
 - The Docker image has not been built and verified. The registry rate-limited the build in the development environment. `docker-compose.yml` passes `docker compose config`.
+
+## Satellite imagery
+
+Renders and the editor preview draw satellite imagery under the map overlays.
+
+| Layer | Used for | Source | Licence | Key |
+| --- | --- | --- | --- | --- |
+| Base | Globe, wide shots, and any area tiles cannot cover | NASA Blue Marble, 4096×2048, downloaded by `scripts/fetch-assets.sh` | Public domain | None |
+| Detail (default) | Close-ups, tile zoom 5 to 13 | [Sentinel-2 cloudless 2016](https://s2maps.eu) by EOX IT Services GmbH | CC BY 4.0 | None |
+| Detail (custom) | Close-ups, up to `SATELLITE_MAX_ZOOM` | Any XYZ tile service you have rights to use | Your provider's terms | Usually |
+
+- **How tiles are fetched.** The renderer works out which tiles every frame of a scene needs, fetches them before drawing, and caches them under `storage/cache/tiles`. It never asks for tiles below zoom 5, because Blue Marble is just as sharp there.
+- **When tiles cannot be fetched.** Each pixel falls back to the next coarser layer, down to Blue Marble. After 8 failures in a row the provider is skipped for 5 minutes, so a render never waits on thousands of timeouts.
+- **Credits.** The credit line on each scene lists only the layers that scene drew, plus "Map data: Natural Earth".
+- **Why the 2016 mosaic.** The EOX mosaics for 2018 and later are CC BY-NC-SA, which does not allow commercial use. Check the current terms at [s2maps.eu](https://s2maps.eu) before rendering at scale.
+- **Why not Google Maps.** Google Maps Platform terms do not allow its satellite tiles to be cached or used outside a Google map, which rules out rendering them into video files.
+- **A sharper keyed provider.** For close-ups sharper than about 10 m per pixel, set `SATELLITE_PROVIDER=custom` with an XYZ URL from a provider whose licence covers video, for example MapTiler, Mapbox or Esri. Confirm the video and attribution terms on your plan first. `{key}` in the URL is replaced with `SATELLITE_TILE_KEY` on the server only.
+- **Network.** The worker and the API need outbound HTTPS to the tile host (`tiles.maps.eox.at` by default). `pnpm check:env` reports the provider in use and any configuration problems.
 
 ## Repository layout
 
@@ -71,13 +95,13 @@ tests                 unit / integration (real MongoDB) / e2e (MongoDB + Redis +
 - MongoDB 7 or newer, and Redis 6 or newer. `docker compose up -d mongo redis` starts both.
 - FFmpeg and ffprobe with libx264 and libass. Debian and Ubuntu: `apt install ffmpeg`.
 - espeak-ng for narration (optional): `apt install espeak-ng`. Without it, render with narration off.
-- About 40 MB of map data and fonts, downloaded by a script.
+- About 42 MB of map data, fonts and base imagery, downloaded by a script.
 
 ## Setup
 
 ```bash
 pnpm install
-bash scripts/fetch-assets.sh          # Natural Earth (public domain) + Noto Sans / Noto Sans Devanagari (OFL)
+bash scripts/fetch-assets.sh          # Natural Earth + NASA Blue Marble (public domain), Noto Sans / Noto Sans Devanagari (OFL)
 cp .env.example .env                  # then set JWT_SECRET: openssl rand -hex 32
 docker compose up -d mongo redis      # or point MONGODB_URI / REDIS_URL at your own
 pnpm check:env                        # verifies config, MongoDB, Redis, FFmpeg, espeak-ng, data, fonts
@@ -117,6 +141,8 @@ All variables are listed with placeholders in [`.env.example`](.env.example). Th
 | `RENDER_CONCURRENCY`, `RENDER_MAX_ATTEMPTS` | Worker parallelism and automatic retries. |
 | `USAGE_RENDERS_PER_DAY`, `USAGE_PLANS_PER_HOUR` | Per-user limits. |
 | `WEB_DIST_DIR` | Serve the built studio from the API. |
+| `SATELLITE_PROVIDER` | `eox-s2cloudless` (default, no key), `custom`, or `none` (Blue Marble only). See [Satellite imagery](#satellite-imagery). |
+| `SATELLITE_TILE_URL`, `SATELLITE_TILE_KEY`, `SATELLITE_ATTRIBUTION`, `SATELLITE_MAX_ZOOM` | A custom XYZ provider. The key stays on the server. |
 | `FFMPEG_PATH`, `FFPROBE_PATH`, `ESPEAK_PATH`, `ATLAS_GEO_DATA_DIR`, `ATLAS_FONTS_DIR`, `ATLAS_ROOT` | Optional path overrides. |
 
 ## Sample video
@@ -182,5 +208,7 @@ Every non-GET request must send `X-Atlas-Client: web`.
 ## Licences and attribution
 
 - Map data: [Natural Earth](https://www.naturalearthdata.com/) (public domain). Every frame carries "Map data: Natural Earth".
+- Base imagery: NASA Blue Marble (public domain), taken from the [three-globe](https://www.npmjs.com/package/three-globe) npm package (MIT), pinned by checksum in `scripts/fetch-assets.sh`.
+- Detail imagery: Sentinel-2 cloudless 2016 by EOX IT Services GmbH, containing modified Copernicus Sentinel data 2016 (CC BY 4.0), or your configured provider. Tiles are fetched at render time and are not bundled.
 - Fonts: Noto Sans and Noto Sans Devanagari (SIL Open Font License).
-- No third-party music or imagery is bundled. The ambience bed is generated with FFmpeg.
+- No third-party music is bundled. The ambience bed is generated with FFmpeg.

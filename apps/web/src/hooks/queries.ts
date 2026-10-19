@@ -11,7 +11,12 @@ export const keys = {
   render: (id: string) => ["render", id] as const,
   providers: ["providers"] as const,
   health: ["health"] as const,
+  imagery: ["imagery"] as const,
 };
+
+export function useImagery() {
+  return useQuery({ queryKey: keys.imagery, queryFn: api.imagery, staleTime: 5 * 60_000 });
+}
 
 export function useMe() {
   return useQuery({

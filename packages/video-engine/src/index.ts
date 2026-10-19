@@ -6,3 +6,4 @@ export * from "./subtitles.js";
 export * from "./tts.js";
 export * from "./hash.js";
 export * from "./compose.js";
+export * from "./imagery.js";

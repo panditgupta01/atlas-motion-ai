@@ -254,6 +254,7 @@ export function EditorPage() {
             {draft.formats.length > 1 && (
               <Segmented label="Preview format" value={format} onChange={setFormat} options={draft.formats.map((f) => ({ value: f, label: f }))} />
             )}
+            <Segmented label="Base map" value={draft.basemap} onChange={(basemap) => store.updateStoryboard({ basemap })} options={[{ value: "satellite", label: "Satellite" }, { value: "vector", label: "Map" }]} />
             <Button size="sm" variant="ghost" aria-label={playback.playing ? "Pause" : "Play"} icon={playback.playing ? <Pause className="size-4" /> : <Play className="size-4" />} onClick={() => {
               if (!playback.playing && playback.t >= 1) playback.setT(0);
               playback.setPlaying(!playback.playing);
@@ -267,9 +268,9 @@ export function EditorPage() {
             </label>
           </div>
           <div className="flex min-h-0 flex-1 items-center justify-center bg-[#090b0d] p-4">
-            <MapPreview scenes={draft.scenes} sceneIndex={sceneIndex} format={format} t={playback.t} />
+            <MapPreview scenes={draft.scenes} sceneIndex={sceneIndex} format={format} basemap={draft.basemap} t={playback.t} />
           </div>
-          <p className="border-t border-line px-4 py-1.5 text-[11px] text-faint">Preview is approximate (MapLibre, 50m data). The final video is drawn by the render worker from the same storyboard and camera timeline.</p>
+          <p className="border-t border-line px-4 py-1.5 text-[11px] text-faint">Preview is approximate (MapLibre, 50m data, lower-resolution imagery). The final video is drawn by the render worker from the same storyboard and camera timeline.</p>
           <div className="border-t border-line">
             <ValidationPanel errors={check.errors} warnings={check.warnings} />
           </div>

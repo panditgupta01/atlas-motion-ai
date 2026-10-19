@@ -108,6 +108,7 @@ export const api = {
 
   overlayFeatures: (countries: string[], rivers: string[]) =>
     request<FeatureCollection>("GET", `/geo/overlay-features${qs({ countries: countries.join(",") || undefined, rivers: rivers.join("|") || undefined })}`),
+  imagery: () => request<ImageryInfo>("GET", "/geo/imagery"),
   searchPlaces: (q: string, signal?: AbortSignal) => request<{ items: GazetteerHit[]; attribution: string }>("GET", `/geo/search${qs({ q, limit: 8 })}`, undefined, signal),
 };
 
@@ -115,6 +116,22 @@ export const api = {
 export function inlineAssetUrl(asset: { downloadUrl: string } | string): string {
   const url = typeof asset === "string" ? `${BASE}/assets/${asset}/download` : asset.downloadUrl;
   return `${url}${url.includes("?") ? "&" : "?"}inline=1`;
+}
+
+export interface ImageryInfo {
+  provider: string;
+  label: string;
+  license: string;
+  attribution: string[];
+  detail: boolean;
+  maxZoom: number;
+  tiles: string;
+}
+
+/** Absolute tile URL template: MapLibre fetches tiles from a worker, where relative URLs do not resolve. */
+export function imageryTileUrl(): string {
+  const path = `${BASE}/geo/imagery/tiles/{z}/{x}/{y}`;
+  return path.startsWith("/") ? `${window.location.origin}${path}` : path;
 }
 
 export function layerUrl(layer: "countries" | "rivers" | "lakes" | "countries-detail" | "rivers-detail"): string {

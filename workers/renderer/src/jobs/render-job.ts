@@ -270,6 +270,8 @@ async function renderScenes(
   signal: AbortSignal,
 ): Promise<Map<string, string>> {
   const clipKeys = new Map<string, string>();
+  const look = { basemap: storyboard.basemap, imagery: storyboard.basemap === "satellite" ? ctx.renderer.imageryTag?.() : undefined };
+  const imageryNotes = new Set<string>();
   const failures: { sceneId: string; format: AspectFormat; message: string; permanent: boolean }[] = [];
   const frameTotal = doc.scenes.reduce((n, s) => n + s.framesTotal, 0);
   let completedFrames = 0;
@@ -280,7 +282,7 @@ async function renderScenes(
       const previous = storyboard.scenes[index - 1];
       const entry = doc.scenes.find((s) => s.sceneId === scene.id && s.format === format);
       const framesTotal = Math.round(scene.durationSeconds * settings.fps);
-      const cacheKey = sceneCacheKey(scene, previous, format, settings.quality, settings.fps);
+      const cacheKey = sceneCacheKey(scene, previous, format, settings.quality, settings.fps, look);
 
       // 1. Already finished in an earlier attempt of this job.
       if (entry && (entry.status === "done" || entry.status === "cached") && entry.clipAssetId && entry.cacheKey === cacheKey) {
@@ -313,6 +315,7 @@ async function renderScenes(
           format,
           quality: settings.quality,
           fps: settings.fps,
+          basemap: storyboard.basemap,
           output: out,
           signal,
           onProgress: (done) => state.sceneProgress(scene.id, format, done, base + done),
@@ -335,7 +338,9 @@ async function renderScenes(
           fps: settings.fps,
           videoCodec: "h264",
           provider: result.renderer,
-          cacheKey,
+          // A clip drawn without some of its detail tiles is not reused by later renders,
+          // so it is redrawn once the tile provider is reachable again.
+          cacheKey: result.imagery?.degraded ? `${cacheKey}-degraded` : cacheKey,
           expiresAt: new Date(Date.now() + CLIP_RETENTION_DAYS * 86400_000),
         });
         fs.rmSync(out, { force: true });
@@ -344,6 +349,10 @@ async function renderScenes(
         await state.updateScene(scene.id, format, { status: "done", framesDone: framesTotal, clipAssetId: asset._id, error: null }, completedFrames);
         clipKeys.set(`${format}|${scene.id}`, key);
         await state.log("info", `${scene.id} (${format}): rendered ${result.frames} frames in ${(result.elapsedMs / 1000).toFixed(1)}s.`);
+        if (result.imagery?.note && !imageryNotes.has(result.imagery.note)) {
+          imageryNotes.add(result.imagery.note);
+          await state.log("warn", `Imagery: ${result.imagery.note}`);
+        }
       } catch (err) {
         if (err instanceof CancelledError || signal.aborted) throw new CancelledError();
         const message = (err as Error).message;

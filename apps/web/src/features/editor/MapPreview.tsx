@@ -4,8 +4,9 @@ import { Map as MapLibreMap, Marker, setWorkerUrl, type GeoJSONSource, type Styl
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import type { Feature, FeatureCollection } from "geojson";
 import { useQuery } from "@tanstack/react-query";
-import { FORMAT_LAYOUTS, cameraAt, type AspectFormat, type Overlay, type Scene } from "@atlas/shared";
-import { api, layerUrl } from "../../services/api";
+import { FORMAT_LAYOUTS, cameraAt, type AspectFormat, type Basemap, type Overlay, type Scene } from "@atlas/shared";
+import { api, imageryTileUrl, layerUrl } from "../../services/api";
+import { useImagery } from "../../hooks/queries";
 
 const PALETTE = {
   ocean: "#0d2236",
@@ -20,11 +21,14 @@ setWorkerUrl(workerUrl);
 
 const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
 
-function baseStyle(): StyleSpecification {
+function baseStyle(basemap: Basemap, imageryMaxZoom: number): StyleSpecification {
+  const sat = basemap === "satellite";
+  const show = (on: boolean) => ({ visibility: on ? ("visible" as const) : ("none" as const) });
   return {
     version: 8,
     projection: { type: "globe" },
     sources: {
+      satellite: { type: "raster", tiles: [imageryTileUrl()], tileSize: 256, maxzoom: imageryMaxZoom },
       countries: { type: "geojson", data: layerUrl("countries") },
       lakes: { type: "geojson", data: layerUrl("lakes") },
       rivers: { type: "geojson", data: layerUrl("rivers") },
@@ -33,12 +37,13 @@ function baseStyle(): StyleSpecification {
     },
     layers: [
       { id: "ocean", type: "background", paint: { "background-color": PALETTE.ocean } },
-      { id: "land", type: "fill", source: "countries", paint: { "fill-color": PALETTE.land } },
-      { id: "borders", type: "line", source: "countries", paint: { "line-color": PALETTE.border, "line-width": 0.6 } },
+      { id: "satellite", type: "raster", source: "satellite", layout: show(sat), paint: { "raster-contrast": 0.08, "raster-brightness-max": 0.92, "raster-fade-duration": 0 } },
+      { id: "land", type: "fill", source: "countries", layout: show(!sat), paint: { "fill-color": PALETTE.land } },
+      { id: "borders", type: "line", source: "countries", paint: { "line-color": sat ? "rgba(255,255,255,0.45)" : PALETTE.border, "line-width": 0.6 } },
       { id: "highlight-fill", type: "fill", source: "overlays", filter: ["==", ["get", "kind"], "country"], paint: { "fill-color": PALETTE.highlight, "fill-opacity": 0.16 } },
       { id: "highlight-line", type: "line", source: "overlays", filter: ["==", ["get", "kind"], "country"], paint: { "line-color": PALETTE.highlight, "line-width": 1.6 } },
-      { id: "lakes", type: "fill", source: "lakes", paint: { "fill-color": PALETTE.water, "fill-opacity": 0.8 } },
-      { id: "rivers", type: "line", source: "rivers", paint: { "line-color": PALETTE.water, "line-width": 0.8, "line-opacity": 0.8 } },
+      { id: "lakes", type: "fill", source: "lakes", layout: show(!sat), paint: { "fill-color": PALETTE.water, "fill-opacity": 0.8 } },
+      { id: "rivers", type: "line", source: "rivers", paint: { "line-color": sat ? "#96cdff" : PALETTE.water, "line-width": 0.8, "line-opacity": sat ? 0.45 : 0.8 } },
       { id: "river-glow", type: "line", source: "overlays", filter: ["==", ["get", "kind"], "river"], paint: { "line-color": "#7cc4ff", "line-width": 6, "line-opacity": 0.25, "line-blur": 3 } },
       { id: "river-line", type: "line", source: "overlays", filter: ["==", ["get", "kind"], "river"], paint: { "line-color": "#7cc4ff", "line-width": 2.4 } },
       { id: "routes", type: "line", source: "routes", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["coalesce", ["get", "color"], PALETTE.route], "line-width": 3 } },
@@ -69,11 +74,15 @@ interface Props {
   scenes: Scene[];
   sceneIndex: number;
   format: AspectFormat;
+  basemap: Basemap;
   /** Normalised time within the scene, 0..1. */
   t: number;
 }
 
-export function MapPreview({ scenes, sceneIndex, format, t }: Props) {
+export function MapPreview({ scenes, sceneIndex, format, basemap, t }: Props) {
+  const imagery = useImagery();
+  const imageryMaxZoom = imagery.data?.maxZoom ?? 7;
+  const credits = basemap === "satellite" ? [...(imagery.data?.attribution ?? ["NASA Blue Marble"]), "Natural Earth"] : ["Natural Earth"];
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const markersRef = useRef<Marker[]>([]);
@@ -94,11 +103,11 @@ export function MapPreview({ scenes, sceneIndex, format, t }: Props) {
     if (!containerRef.current) return;
     const map = new MapLibreMap({
       container: containerRef.current,
-      style: baseStyle(),
+      style: baseStyle(basemap, imageryMaxZoom),
       center: [0, 20],
       zoom: 1,
       interactive: false,
-      attributionControl: { compact: true, customAttribution: "Natural Earth" },
+      attributionControl: { compact: true, customAttribution: credits },
       fadeDuration: 0,
     });
     map.on("load", () => setReady(true));
@@ -114,7 +123,8 @@ export function MapPreview({ scenes, sceneIndex, format, t }: Props) {
       mapRef.current = null;
       setReady(false);
     };
-  }, [format]);
+    // credits follow basemap and the imagery query, which are dependencies.
+  }, [format, basemap, imageryMaxZoom]);
 
   // Highlighted countries and rivers.
   useEffect(() => {

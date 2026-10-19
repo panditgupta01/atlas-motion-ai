@@ -3,6 +3,7 @@
 storage
 data/natural-earth/*.geojson
 assets/fonts/*.ttf
+assets/imagery/*.jpg
 .env
 .env.*
 !.env.example

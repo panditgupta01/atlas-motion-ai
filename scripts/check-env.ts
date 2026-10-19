@@ -11,7 +11,7 @@ import mongoose from "mongoose";
 import { Redis } from "ioredis";
 import { ConfigError, loadConfig } from "@atlas/server-core";
 import { checkGeoData } from "@atlas/geo";
-import { EspeakTtsProvider, fontsDir } from "@atlas/video-engine";
+import { describeImagery, EspeakTtsProvider, fontsDir, imageryConfigFromEnv } from "@atlas/video-engine";
 
 type Result = { name: string; ok: boolean; detail: string; required: boolean };
 const results: Result[] = [];
@@ -41,6 +41,10 @@ add("espeak-ng (narration)", espeak.isConfigured(), espeak.isConfigured() ? "fou
 const geo = checkGeoData();
 add("Natural Earth data", geo.ok, geo.ok ? "all datasets present" : `missing ${geo.missing.join(", ")}; run scripts/fetch-assets.sh`);
 const fonts = ["NotoSans.ttf", "NotoSansDevanagari.ttf"].filter((f) => !fs.existsSync(path.join(fontsDir(), f)));
+const imagery = describeImagery(imageryConfigFromEnv());
+add("Base imagery (NASA Blue Marble)", imagery.baseImage, imagery.baseImage ? "present" : "missing; run scripts/fetch-assets.sh (satellite renders fall back to plain ocean)");
+const imageryIssues = imagery.issues.filter((i) => !i.startsWith("Base imagery"));
+add("Satellite detail tiles", imageryIssues.length === 0, imageryIssues.length ? imageryIssues.join(" ") : imagery.provider === "none" ? "off (SATELLITE_PROVIDER=none); close-ups use Blue Marble" : `${imagery.label}, ${imagery.license}, up to zoom ${imagery.maxZoom}`, imagery.provider === "custom");
 add("Fonts", fonts.length === 0, fonts.length ? `missing ${fonts.join(", ")}; run scripts/fetch-assets.sh` : "Noto Sans + Devanagari present");
 
 if (config) {

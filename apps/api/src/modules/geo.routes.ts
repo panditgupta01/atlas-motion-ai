@@ -1,4 +1,6 @@
-import { Router } from "express";
+import { Router, type RequestHandler } from "express";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
+import { describeImagery, type ImageryTileService } from "@atlas/video-engine";
 import { z } from "zod";
 import { datasetPath, getCountryByIso3, getCountryFeature, getRiverFeatures, NATURAL_EARTH_ATTRIBUTION, searchGazetteer, simplifyGeometry } from "@atlas/geo";
 import { parse } from "../errors.js";
@@ -6,8 +8,41 @@ import { parse } from "../errors.js";
 const LAYERS = { countries: "countries50m", rivers: "rivers50m", lakes: "lakes50m", "countries-detail": "countries10m", "rivers-detail": "rivers10m" } as const;
 
 /** Geographic lookup for the editor: gazetteer search and the vector layers the map preview draws. */
-export function geoRoutes(): Router {
+export function geoRoutes(opts: { imagery: ImageryTileService; authed: RequestHandler; test?: boolean }): Router {
   const r = Router();
+  const { imagery } = opts;
+
+  /** Which satellite imagery the preview and the renderer use. Never includes keys or upstream URLs. */
+  r.get("/imagery", (_req, res) => {
+    const d = describeImagery(imagery.cfg);
+    res.json({
+      provider: d.provider,
+      label: d.label,
+      license: d.license,
+      attribution: imagery.fetcher.enabled ? [d.attribution, "NASA Blue Marble"].filter(Boolean) : ["NASA Blue Marble"],
+      detail: imagery.fetcher.enabled,
+      maxZoom: imagery.maxZoom,
+      tiles: "/api/v1/geo/imagery/tiles/{z}/{x}/{y}",
+    });
+  });
+
+  const tileLimiter = rateLimit({
+    windowMs: 60_000,
+    limit: opts.test ? 100_000 : 3000,
+    keyGenerator: (req) => (req.user ? String(req.user._id) : ipKeyGenerator(req.ip ?? "")),
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+  });
+
+  /** Signed-in only, so the server is not an open tile proxy. */
+  r.get("/imagery/tiles/:z/:x/:y", opts.authed, tileLimiter, async (req, res) => {
+    const [z, x, y] = [req.params.z, req.params.x, String(req.params.y).replace(/\.(jpg|jpeg|png)$/, "")].map((v) => (/^\d{1,6}$/.test(String(v)) ? Number(v) : NaN));
+    const tile = await imagery.getTile(z!, x!, y!);
+    if (!tile) return res.status(404).json({ error: { code: "not_found", message: "No imagery for this tile." } });
+    res.setHeader("Cache-Control", "private, max-age=86400");
+    res.setHeader("X-Imagery-Source", tile.source);
+    res.type(tile.contentType).send(tile.body);
+  });
 
   r.get("/search", (req, res) => {
     const q = parse(

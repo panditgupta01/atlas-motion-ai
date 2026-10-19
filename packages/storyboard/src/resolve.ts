@@ -181,6 +181,7 @@ export function draftToStoryboard(
     durationSeconds: input.durationSeconds,
     formats: input.formats,
     style: input.style,
+    basemap: "satellite",
     fps: 30,
     scenes,
     sources,

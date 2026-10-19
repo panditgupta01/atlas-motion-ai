@@ -1,11 +1,12 @@
 import path from "node:path";
 import fs from "node:fs";
-import { createCanvas, GlobalFonts, type Canvas, type SKRSContext2D } from "@napi-rs/canvas";
+import { createCanvas, GlobalFonts, type Canvas, type ImageData, type SKRSContext2D } from "@napi-rs/canvas";
 import { geoDistance, geoGraticule10, geoOrthographic, geoPath, type GeoPermissibleObjects } from "d3-geo";
 import type { Feature, Geometry, LineString, MultiLineString, Position } from "geojson";
 import { clipFeatures, findRepoRoot, getCountryFeature, getRiverFeatures, loadDataset, loadSimplified, type BBox, type DatasetId, type PreparedFeature } from "@atlas/geo";
 import type { FormatLayout, FrameSize, Overlay, Scene } from "@atlas/shared";
 import { scaleForZoom, visibleRadiusDegrees, type CameraState } from "./camera.js";
+import { sampleRaster as sampleInto, tileZoomForScale, type Mosaic, type Raster } from "./imagery.js";
 
 
 export function fontsDir(): string {
@@ -48,6 +49,49 @@ export const PALETTE = {
   halo: "rgba(5,8,12,0.85)",
   marker: "#ff6b4a",
 };
+
+/** Satellite imagery prepared for one scene (see MapSceneRenderer.prepareImagery). */
+export interface SceneImagery {
+  base: Raster | null;
+  /** Detail mosaics by tile zoom. */
+  mosaics: Map<number, Mosaic>;
+  maxZoom: number;
+  /** Credit lines for what this scene draws. */
+  attribution: string[];
+}
+
+/** Colours used over satellite imagery, where the vector land fill is not drawn. */
+export const SATELLITE_PALETTE = {
+  space: "#05070a",
+  border: "rgba(255,255,255,0.42)",
+  borderShadow: "rgba(0,0,0,0.35)",
+  river: "rgba(150,205,255,0.5)",
+  atmosphere: "rgba(120,170,230,",
+};
+
+const MERC_LIMIT = Math.sin((85.0511287798 * Math.PI) / 180);
+
+/**
+ * Inverse of d3's geoOrthographic().rotate([-lon0, -lat0, roll]).scale(scale)
+ * for a screen offset (dx right, dy up, in pixels) from the centre. Writes
+ * [lonDeg, sinLat] into out and returns false for points off the globe.
+ */
+export function invertOrthographic(dx: number, dy: number, scale: number, lon0: number, sinP: number, cosP: number, sinG: number, cosG: number, out: Float64Array): boolean {
+  const x = dx / scale;
+  const y = dy / scale;
+  const rho2 = x * x + y * y;
+  if (rho2 > 1) return false;
+  // Point on the unit sphere in the rotated frame (d3's cartesian convention), then undo the rotation.
+  const xc = Math.sqrt(1 - rho2);
+  const k = y * cosG - x * sinG;
+  const lam = Math.atan2(x * cosG + y * sinG, xc * cosP + k * sinP);
+  let lon = (lam * 180) / Math.PI + lon0;
+  if (lon > 180) lon -= 360;
+  else if (lon < -180) lon += 360;
+  out[0] = lon;
+  out[1] = k * cosP - xc * sinP;
+  return true;
+}
 
 export interface FrameRenderInput {
   scene: Scene;
@@ -118,9 +162,10 @@ function partialLines(lines: Position[][], fraction: number): Position[][] {
 }
 
 /**
- * Draws one map frame: an orthographic globe/regional view built from
- * Natural Earth vector data, plus the scene's overlays. This is a 2D
- * animated map renderer; it does not render terrain relief.
+ * Draws one map frame: an orthographic globe/regional view with satellite
+ * imagery (or a flat vector look) under Natural Earth borders and rivers,
+ * plus the scene's overlays. This is a 2D renderer; it does not render
+ * terrain relief.
  */
 export class MapFrameRenderer {
   readonly canvas: Canvas;
@@ -129,6 +174,9 @@ export class MapFrameRenderer {
   /** Scene-wide lon/lat window covering every frame; layers are clipped to it once per scene. */
   private window: BBox | null = null;
   private readonly layerCache = new Map<string, PreparedFeature[]>();
+  private imagery: SceneImagery | null = null;
+  /** Imagery buffers by downscale factor (1 = full resolution). */
+  private readonly pixelBuffers = new Map<number, { canvas: Canvas; pixels: ImageData }>();
 
   constructor(readonly size: FrameSize) {
     registerFonts();
@@ -153,6 +201,164 @@ export class MapFrameRenderer {
     }
     if (w[0] < -180 || w[2] > 180 || w[1] < -90 || w[3] > 90 || !Number.isFinite(w[0])) return;
     this.window = w;
+  }
+
+  /** Satellite imagery for the next frames, or null for the vector-only look. */
+  setImagery(imagery: SceneImagery | null): void {
+    this.imagery = imagery;
+  }
+
+  /**
+   * Fill the globe with satellite imagery: every pixel is inverse-projected to
+   * lon/lat and sampled from the best available layer (detail mosaic at the
+   * frame's tile zoom, then coarser mosaics, then the whole-world base image).
+   */
+  private drawSatellite(camera: CameraState, scale: number): void {
+    const img = this.imagery!;
+    const z = tileZoomForScale(scale, camera.latitude, img.maxZoom);
+    const layers: Mosaic[] = [];
+    for (let zz = z; zz >= 0; zz--) {
+      const m = img.mosaics.get(zz);
+      if (m) layers.push(m);
+    }
+    // The base image is at least 2x upscaled at every zoom it is used for, so frames drawn only
+    // from it are computed at half resolution and scaled up, which looks the same and is 4x faster.
+    const factor = layers.length ? 1 : 2;
+    let buf = this.pixelBuffers.get(factor);
+    if (!buf) {
+      const canvas = factor === 1 ? this.canvas : createCanvas(Math.ceil(this.size.width / factor), Math.ceil(this.size.height / factor));
+      buf = { canvas, pixels: canvas.getContext("2d").createImageData(canvas.width, canvas.height) };
+      this.pixelBuffers.set(factor, buf);
+    }
+    const width = buf.canvas.width;
+    const height = buf.canvas.height;
+    scale /= factor;
+    const out = buf.pixels.data;
+    const base = img.base;
+    const sinP = Math.sin((-camera.latitude * Math.PI) / 180);
+    const cosP = Math.cos((-camera.latitude * Math.PI) / 180);
+    const g = (camera.roll * Math.PI) / 180;
+    const sinG = Math.sin(g);
+    const cosG = Math.cos(g);
+    const ll = new Float64Array(2);
+    const cx = width / 2;
+    const cy = height / 2;
+
+    // Sample one pixel from lon, Mercator y (NaN outside Mercator's range) and latitude.
+    const shade = (lon: number, my: number, lat: number, o: number) => {
+      out[o + 3] = 255;
+      if (my === my && layers.length) {
+        const mx = (lon + 180) / 360;
+        for (const m of layers) {
+          const world = 256 * 2 ** m.z;
+          let x = mx * world - m.tx0 * 256 - 0.5;
+          if (x < 0) x += world;
+          else if (x >= m.raster.width && x - world >= 0) x -= world;
+          if (sampleInto(m.raster, x, my * world - m.ty0 * 256 - 0.5, 0, out, o)) return;
+        }
+      }
+      if (base && sampleInto(base, ((lon + 180) / 360) * base.width - 0.5, ((90 - lat) / 180) * base.height - 0.5, base.width, out, o)) return;
+      out[o] = 14;
+      out[o + 1] = 24;
+      out[o + 2] = 34;
+    };
+    const exact = (px: number, py: number) => {
+      const o = (py * width + px) * 4;
+      if (!invertOrthographic(px + 0.5 - cx, cy - (py + 0.5), scale, camera.longitude, sinP, cosP, sinG, cosG, ll)) {
+        out[o] = 5;
+        out[o + 1] = 7;
+        out[o + 2] = 10;
+        out[o + 3] = 255;
+        return;
+      }
+      const sl = ll[1]!;
+      shade(ll[0]!, sl < MERC_LIMIT && sl > -MERC_LIMIT ? 0.5 - Math.log((1 + sl) / (1 - sl)) / (4 * Math.PI) : NaN, (Math.asin(sl) * 180) / Math.PI, o);
+    };
+
+    // The inverse projection is smooth away from the limb, so it is computed exactly on a coarse
+    // grid and interpolated inside blocks; blocks touching the limb or the antimeridian use exact maths.
+    const STEP = 8;
+    const gw = Math.ceil(width / STEP) + 1;
+    const gh = Math.ceil(height / STEP) + 1;
+    const gLon = new Float64Array(gw * gh);
+    const gMy = new Float64Array(gw * gh);
+    const gLat = new Float64Array(gw * gh);
+    const gIn = new Uint8Array(gw * gh);
+    for (let j = 0; j < gh; j++) {
+      for (let i = 0; i < gw; i++) {
+        const k = j * gw + i;
+        if (invertOrthographic(i * STEP + 0.5 - cx, cy - (j * STEP + 0.5), scale, camera.longitude, sinP, cosP, sinG, cosG, ll)) {
+          const sl = ll[1]!;
+          gIn[k] = sl < MERC_LIMIT && sl > -MERC_LIMIT ? 1 : 0;
+          gLon[k] = ll[0]!;
+          gMy[k] = 0.5 - Math.log((1 + sl) / (1 - sl)) / (4 * Math.PI);
+          gLat[k] = (Math.asin(sl) * 180) / Math.PI;
+        }
+      }
+    }
+    for (let bj = 0; bj < gh - 1; bj++) {
+      const y0 = bj * STEP;
+      const y1 = Math.min(height, y0 + STEP);
+      for (let bi = 0; bi < gw - 1; bi++) {
+        const x0 = bi * STEP;
+        const x1 = Math.min(width, x0 + STEP);
+        const k00 = bj * gw + bi;
+        const k10 = k00 + 1;
+        const k01 = k00 + gw;
+        const k11 = k01 + 1;
+        const lons = [gLon[k00]!, gLon[k10]!, gLon[k01]!, gLon[k11]!];
+        if (!(gIn[k00] && gIn[k10] && gIn[k01] && gIn[k11]) || Math.max(...lons) - Math.min(...lons) > 90) {
+          for (let py = y0; py < y1; py++) for (let px = x0; px < x1; px++) exact(px, py);
+          continue;
+        }
+        for (let py = y0; py < y1; py++) {
+          const fy = (py - y0) / STEP;
+          const lonL = lons[0]! + (lons[2]! - lons[0]!) * fy;
+          const lonR = lons[1]! + (lons[3]! - lons[1]!) * fy;
+          const myL = gMy[k00]! + (gMy[k01]! - gMy[k00]!) * fy;
+          const myR = gMy[k10]! + (gMy[k11]! - gMy[k10]!) * fy;
+          const laL = gLat[k00]! + (gLat[k01]! - gLat[k00]!) * fy;
+          const laR = gLat[k10]! + (gLat[k11]! - gLat[k10]!) * fy;
+          let o = (py * width + x0) * 4;
+          for (let px = x0; px < x1; px++, o += 4) {
+            const fx = (px - x0) / STEP;
+            shade(lonL + (lonR - lonL) * fx, myL + (myR - myL) * fx, laL + (laR - laL) * fx, o);
+          }
+        }
+      }
+    }
+    if (factor === 1) {
+      this.ctx.putImageData(buf.pixels, 0, 0);
+    } else {
+      buf.canvas.getContext("2d").putImageData(buf.pixels, 0, 0);
+      this.ctx.imageSmoothingEnabled = true;
+      this.ctx.imageSmoothingQuality = "high";
+      this.ctx.drawImage(buf.canvas, 0, 0, this.size.width, this.size.height);
+    }
+  }
+
+  /** Thin atmosphere glow around the limb when the globe edge is in view. */
+  private drawAtmosphere(scale: number): void {
+    const { ctx, size } = this;
+    if (scale > Math.hypot(size.width, size.height)) return;
+    const cx = size.width / 2;
+    const cy = size.height / 2;
+    const glow = ctx.createRadialGradient(cx, cy, scale * 0.985, cx, cy, scale * 1.08);
+    glow.addColorStop(0, `${SATELLITE_PALETTE.atmosphere}0.55)`);
+    glow.addColorStop(0.35, `${SATELLITE_PALETTE.atmosphere}0.18)`);
+    glow.addColorStop(1, `${SATELLITE_PALETTE.atmosphere}0)`);
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(cx, cy, scale * 1.08, 0, Math.PI * 2);
+    ctx.arc(cx, cy, scale * 0.985, 0, Math.PI * 2, true);
+    ctx.fill();
+    const shade = ctx.createRadialGradient(cx, cy, scale * 0.7, cx, cy, scale);
+    shade.addColorStop(0, "rgba(0,0,0,0)");
+    shade.addColorStop(1, "rgba(0,0,0,0.35)");
+    ctx.fillStyle = shade;
+    ctx.beginPath();
+    ctx.arc(cx, cy, scale, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   /** Map layer at the right level of detail for a zoom, clipped to the scene window. */
@@ -197,35 +403,51 @@ export class MapFrameRenderer {
     const lw = (px: number) => Math.max(0.5, (px * u) / 1080);
 
     ctx.save();
-    ctx.fillStyle = PALETTE.background;
-    ctx.fillRect(0, 0, size.width, size.height);
-
-    // Ocean disc
-    ctx.beginPath();
-    pathGen({ type: "Sphere" } as GeoPermissibleObjects);
-    ctx.fillStyle = PALETTE.ocean;
-    ctx.fill();
-    ctx.strokeStyle = PALETTE.oceanRim;
-    ctx.lineWidth = lw(2);
-    ctx.stroke();
-
-    // Graticule
-    ctx.beginPath();
-    pathGen(geoGraticule10());
-    ctx.strokeStyle = PALETTE.graticule;
-    ctx.lineWidth = lw(1);
-    ctx.stroke();
-
+    const satellite = this.imagery !== null;
     const visible = (list: PreparedFeature[]) => list.filter((f) => bboxVisible(f.bbox, camera, radius));
     const countries = visible(this.layer("countries", camera.zoom));
 
-    ctx.beginPath();
-    for (const f of countries) pathGen(f.feature as GeoPermissibleObjects);
-    ctx.fillStyle = PALETTE.land;
-    ctx.fill();
-    ctx.strokeStyle = PALETTE.border;
-    ctx.lineWidth = lw(detailed ? 1.6 : 1);
-    ctx.stroke();
+    if (satellite) {
+      this.drawSatellite(camera, scale);
+      this.drawAtmosphere(scale);
+      // Borders over imagery: a dark under-stroke keeps them visible over bright desert and snow.
+      ctx.beginPath();
+      for (const f of countries) pathGen(f.feature as GeoPermissibleObjects);
+      ctx.lineJoin = "round";
+      ctx.strokeStyle = SATELLITE_PALETTE.borderShadow;
+      ctx.lineWidth = lw(detailed ? 3 : 2);
+      ctx.stroke();
+      ctx.strokeStyle = SATELLITE_PALETTE.border;
+      ctx.lineWidth = lw(detailed ? 1.4 : 0.9);
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = PALETTE.background;
+      ctx.fillRect(0, 0, size.width, size.height);
+
+      // Ocean disc
+      ctx.beginPath();
+      pathGen({ type: "Sphere" } as GeoPermissibleObjects);
+      ctx.fillStyle = PALETTE.ocean;
+      ctx.fill();
+      ctx.strokeStyle = PALETTE.oceanRim;
+      ctx.lineWidth = lw(2);
+      ctx.stroke();
+
+      // Graticule
+      ctx.beginPath();
+      pathGen(geoGraticule10());
+      ctx.strokeStyle = PALETTE.graticule;
+      ctx.lineWidth = lw(1);
+      ctx.stroke();
+
+      ctx.beginPath();
+      for (const f of countries) pathGen(f.feature as GeoPermissibleObjects);
+      ctx.fillStyle = PALETTE.land;
+      ctx.fill();
+      ctx.strokeStyle = PALETTE.border;
+      ctx.lineWidth = lw(detailed ? 1.6 : 1);
+      ctx.stroke();
+    }
 
     // Highlighted countries
     for (const o of scene.overlays) {
@@ -235,7 +457,7 @@ export class MapFrameRenderer {
       const appear = Math.min(1, t / 0.3);
       ctx.beginPath();
       pathGen(cf.feature as GeoPermissibleObjects);
-      ctx.globalAlpha = 0.16 * appear;
+      ctx.globalAlpha = (satellite ? 0.12 : 0.16) * appear;
       ctx.fillStyle = o.color ?? PALETTE.highlight;
       ctx.fill();
       ctx.globalAlpha = appear;
@@ -245,17 +467,19 @@ export class MapFrameRenderer {
       ctx.globalAlpha = 1;
     }
 
-    // Lakes and background rivers
-    ctx.beginPath();
-    for (const f of visible(this.layer("lakes", camera.zoom))) pathGen(f.feature as GeoPermissibleObjects);
-    ctx.fillStyle = PALETTE.lake;
-    ctx.fill();
+    // Lakes and background rivers. Imagery already shows water, so only faint river lines go over it.
+    if (!satellite) {
+      ctx.beginPath();
+      for (const f of visible(this.layer("lakes", camera.zoom))) pathGen(f.feature as GeoPermissibleObjects);
+      ctx.fillStyle = PALETTE.lake;
+      ctx.fill();
+    }
 
     ctx.beginPath();
     for (const f of visible(this.layer("rivers", camera.zoom))) pathGen(f.feature as GeoPermissibleObjects);
-    ctx.strokeStyle = PALETTE.river;
-    ctx.globalAlpha = detailed ? 0.75 : 0.45;
-    ctx.lineWidth = lw(detailed ? 2 : 1.2);
+    ctx.strokeStyle = satellite ? SATELLITE_PALETTE.river : PALETTE.river;
+    ctx.globalAlpha = satellite ? (detailed ? 0.6 : 0.3) : detailed ? 0.75 : 0.45;
+    ctx.lineWidth = lw(detailed ? (satellite ? 1.4 : 2) : 1.2);
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
     ctx.stroke();
@@ -468,7 +692,8 @@ export class MapFrameRenderer {
     ctx.fillStyle = "rgba(200,210,220,0.55)";
     ctx.textAlign = "right";
     ctx.textBaseline = "bottom";
-    ctx.fillText("Map data: Natural Earth", size.width - px, size.height - px * 0.8);
+    const credits = [...(this.imagery?.attribution ?? []), "Map data: Natural Earth"];
+    credits.reverse().forEach((line, i) => ctx.fillText(line, size.width - px, size.height - px * 0.8 - i * px * 1.35));
     ctx.restore();
   }
 }

@@ -47,7 +47,14 @@ export function createApp(deps: AppDeps): express.Express {
   app.use(cookieParser());
   app.use(
     "/api/",
-    rateLimit({ windowMs: 60_000, limit: deps.config.NODE_ENV === "test" ? 10_000 : 300, standardHeaders: "draft-7", legacyHeaders: false }),
+    rateLimit({
+      windowMs: 60_000,
+      limit: deps.config.NODE_ENV === "test" ? 10_000 : 300,
+      standardHeaders: "draft-7",
+      legacyHeaders: false,
+      // Map tiles have their own, higher per-user limit (a globe preview loads dozens at once).
+      skip: (req) => req.path.startsWith("/v1/geo/imagery/tiles/"),
+    }),
   );
   app.use("/api/", requireClientHeader);
 
@@ -55,7 +62,7 @@ export function createApp(deps: AppDeps): express.Express {
   const authed = requireAuth(deps.config);
   v1.use(systemRoutes(deps));
   v1.use("/auth", authRoutes(deps));
-  v1.use("/geo", geoRoutes());
+  v1.use("/geo", geoRoutes({ imagery: deps.imagery, authed, test: deps.config.NODE_ENV === "test" }));
   const renders = renderRoutes(deps);
   v1.use("/projects", authed, projectRoutes(deps));
   v1.use("/projects/:projectId", authed, storyboardRoutes(deps));
