@@ -1,8 +1,8 @@
 import path from "node:path";
 import fs from "node:fs";
-import { createCanvas, GlobalFonts, type Canvas, type ImageData, type SKRSContext2D } from "@napi-rs/canvas";
+import { createCanvas, GlobalFonts, type Canvas, type Image, type ImageData, type SKRSContext2D } from "@napi-rs/canvas";
 import { geoDistance, geoGraticule10, geoOrthographic, geoPath, type GeoPermissibleObjects } from "d3-geo";
-import type { Feature, Geometry, LineString, MultiLineString, Position } from "geojson";
+import type { Feature, FeatureCollection, Geometry, LineString, MultiLineString, Position } from "geojson";
 import { clipFeatures, findRepoRoot, getCountryFeature, getRiverFeatures, loadDataset, loadSimplified, type BBox, type DatasetId, type PreparedFeature } from "@atlas/geo";
 import type { FormatLayout, FrameSize, Overlay, Scene } from "@atlas/shared";
 import { scaleForZoom, visibleRadiusDegrees, type CameraState } from "./camera.js";
@@ -496,6 +496,106 @@ export class MapFrameRenderer {
     return this.canvas;
   }
 
+  /** Rivers (cut to their reveal progress) and routes for the 3D page, which drapes them on the terrain. */
+  overlayLines3d(scene: Scene, t: number): FeatureCollection {
+    const reveal = Math.min(1, t / 0.7);
+    const features: Feature[] = [];
+    for (const o of scene.overlays) {
+      if (o.type === "river") {
+        const lines = this.rivers(o.datasetName).flatMap((f) => lineParts(f.geometry));
+        features.push({ type: "Feature", properties: { kind: "river" }, geometry: { type: "MultiLineString", coordinates: o.animate ? partialLines(lines, reveal) : lines } });
+      } else if (o.type === "route") {
+        const coords = o.animate ? partialLines([o.coordinates], reveal)[0]! : o.coordinates;
+        features.push({ type: "Feature", properties: { kind: "route", color: o.color ?? PALETTE.route }, geometry: { type: "LineString", coordinates: coords } });
+      }
+    }
+    return { type: "FeatureCollection", features };
+  }
+
+  /** Points whose screen positions the 3D page reports back, keyed by overlay index. */
+  overlayAnchors3d(scene: Scene, t: number): { key: string; lonLat: [number, number] }[] {
+    const reveal = Math.min(1, t / 0.7);
+    const out: { key: string; lonLat: [number, number] }[] = [];
+    scene.overlays.forEach((o, i) => {
+      if (o.type === "marker" || o.type === "location_label") out.push({ key: String(i), lonLat: [o.longitude, o.latitude] });
+      else if (o.type === "river" && o.label) {
+        const lines = this.rivers(o.datasetName).flatMap((f) => lineParts(f.geometry));
+        if (lines.length) {
+          const longest = lines.reduce((a, b) => (b.length > a.length ? b : a));
+          const mid = longest[Math.floor(longest.length / 2)];
+          if (mid) out.push({ key: String(i), lonLat: [mid[0]!, mid[1]!] });
+        }
+      } else if (o.type === "route" && o.label) {
+        const coords = o.animate ? partialLines([o.coordinates], reveal)[0]! : o.coordinates;
+        const last = coords[coords.length - 1];
+        if (last) out.push({ key: String(i), lonLat: [last[0]!, last[1]!] });
+      } else if (o.type === "arrow") {
+        out.push({ key: `${i}:from`, lonLat: o.from });
+        out.push({ key: `${i}:to`, lonLat: o.to });
+      }
+    });
+    return out;
+  }
+
+  /**
+   * Finish a 3D frame: draw the terrain image from the browser, then markers,
+   * labels, arrows, legend, title card and credits at the screen positions the
+   * page reported, then the scene-edge fade.
+   */
+  composite3d(input: FrameRenderInput, image: Image, anchors: Map<string, [number, number] | null>, credits: string[]): Canvas {
+    const { ctx, size } = this;
+    const { scene, t, layout } = input;
+    const u = this.unit();
+    const lw = (px: number) => Math.max(0.5, (px * u) / 1080);
+    const reveal = Math.min(1, t / 0.7);
+    ctx.save();
+    ctx.drawImage(image, 0, 0, size.width, size.height);
+    scene.overlays.forEach((o, i) => {
+      if (o.type === "arrow") {
+        const a = anchors.get(`${i}:from`);
+        const b = anchors.get(`${i}:to`);
+        if (a && b) this.arrow(a[0], a[1], b[0], b[1], reveal, lw, o.label);
+        return;
+      }
+      const p = anchors.get(String(i));
+      if (!p) return;
+      if (o.type === "river" && o.label) this.label(o.label, p[0], p[1], u * 0.032, Math.min(1, t / 0.4), "#cfe8ff");
+      else if (o.type === "route" && o.label) this.label(o.label, p[0], p[1] - u * 0.03, u * 0.03, 1);
+      else if (o.type === "marker") {
+        const r = u * 0.012;
+        if (o.pulse) {
+          const phase = (input.seconds % 1.6) / 1.6;
+          ctx.beginPath();
+          ctx.arc(p[0], p[1], r + phase * r * 3, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(255,107,74,${(1 - phase).toFixed(3)})`;
+          ctx.lineWidth = lw(3);
+          ctx.stroke();
+        }
+        ctx.beginPath();
+        ctx.arc(p[0], p[1], r, 0, Math.PI * 2);
+        ctx.fillStyle = PALETTE.marker;
+        ctx.fill();
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = lw(2.5);
+        ctx.stroke();
+        if (o.label) this.label(o.label, p[0], p[1] - r * 2.6, u * 0.034, Math.min(1, t / 0.3));
+      } else if (o.type === "location_label") {
+        this.label(o.text, p[0], p[1], u * 0.045, Math.min(1, Math.max(0, (t - 0.15) / 0.3)), PALETTE.text, true);
+      }
+    });
+    const legend = scene.overlays.find((o): o is Extract<Overlay, { type: "legend" }> => o.type === "legend");
+    if (legend) this.legend(legend.items, layout);
+    const title = scene.overlays.find((o): o is Extract<Overlay, { type: "title_card" }> => o.type === "title_card");
+    if (title) this.titleCard(title.text, title.subtitle, layout, t);
+    this.drawCredits(credits);
+    if (input.fade < 1) {
+      ctx.fillStyle = `rgba(0,0,0,${(1 - input.fade).toFixed(3)})`;
+      ctx.fillRect(0, 0, size.width, size.height);
+    }
+    ctx.restore();
+    return this.canvas;
+  }
+
   private isFacing(lonLat: [number, number], cam: CameraState): boolean {
     return geoDistance(lonLat, [cam.longitude, cam.latitude]) < Math.PI / 2 - 0.01;
   }
@@ -685,6 +785,10 @@ export class MapFrameRenderer {
   }
 
   private drawAttribution(): void {
+    this.drawCredits([...(this.imagery?.attribution ?? []), "Map data: Natural Earth"]);
+  }
+
+  private drawCredits(lines: string[]): void {
     const { ctx, size } = this;
     const px = Math.max(10, Math.round(this.unit() * 0.016));
     ctx.save();
@@ -692,7 +796,14 @@ export class MapFrameRenderer {
     ctx.fillStyle = "rgba(200,210,220,0.55)";
     ctx.textAlign = "right";
     ctx.textBaseline = "bottom";
-    const credits = [...(this.imagery?.attribution ?? []), "Map data: Natural Earth"];
+    // Pack credits onto as few lines as fit in most of the frame width, so they stay small.
+    const maxWidth = size.width * 0.7;
+    const credits: string[] = [];
+    for (const line of lines) {
+      const last = credits[credits.length - 1];
+      if (last && ctx.measureText(`${last} · ${line}`).width <= maxWidth) credits[credits.length - 1] = `${last} · ${line}`;
+      else credits.push(line);
+    }
     credits.reverse().forEach((line, i) => ctx.fillText(line, size.width - px, size.height - px * 0.8 - i * px * 1.35));
     ctx.restore();
   }

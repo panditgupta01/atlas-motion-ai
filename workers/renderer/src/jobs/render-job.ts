@@ -270,7 +270,7 @@ async function renderScenes(
   signal: AbortSignal,
 ): Promise<Map<string, string>> {
   const clipKeys = new Map<string, string>();
-  const look = { basemap: storyboard.basemap, imagery: storyboard.basemap === "satellite" ? ctx.renderer.imageryTag?.() : undefined };
+  const look = { basemap: storyboard.basemap, imagery: storyboard.basemap !== "vector" ? ctx.renderer.imageryTag?.() : undefined };
   const imageryNotes = new Set<string>();
   const failures: { sceneId: string; format: AspectFormat; message: string; permanent: boolean }[] = [];
   const frameTotal = doc.scenes.reduce((n, s) => n + s.framesTotal, 0);

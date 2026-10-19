@@ -72,3 +72,46 @@ export function cameraAt(scene: Scene, previous: Scene | undefined, t: number, l
   }
 }
 
+
+/** Camera for the 3D terrain view, in MapLibre terms. */
+export interface Camera3D {
+  longitude: number;
+  latitude: number;
+  /** MapLibre zoom level (512 px tiles). */
+  zoom: number;
+  pitch: number;
+  bearing: number;
+}
+
+/** Convert the storyboard zoom (0 = whole globe filling ~90% of the short side) to a MapLibre zoom. */
+export function toMapLibreZoom(zoom: number, minSidePx: number, latitude: number): number {
+  const radiusPx = minSidePx * 0.45 * Math.pow(2, zoom);
+  const cosLat = Math.max(0.2, Math.cos((latitude * Math.PI) / 180));
+  return Math.log2((radiusPx * 2 * Math.PI * cosLat) / 512);
+}
+
+/** Tilt used when a scene does not set one: flat for globe shots, increasingly cinematic closer in. */
+export function defaultPitch(zoom: number): number {
+  return Math.max(0, Math.min(65, (zoom - 1.2) * 16));
+}
+
+/**
+ * 3D camera at normalised time t: the same path as cameraAt (so the 2D and 3D
+ * views tell the same story), plus tilt and heading. Moving shots drift a few
+ * degrees in heading so the terrain parallax reads as a flyover.
+ */
+export function camera3dAt(scene: Scene, previous: Scene | undefined, t: number, layout: FormatLayout, minSidePx: number): Camera3D {
+  const c = cameraAt(scene, previous, t, layout);
+  const cam = scene.camera;
+  const k = cam.easing === "linear" ? t : easeInOut(Math.min(1, Math.max(0, t)));
+  const pitch = cam.pitch ?? defaultPitch(c.zoom);
+  const heading = cam.bearing ?? 0;
+  const drift = cam.move === "static" ? 0 : cam.move === "orbit" ? lerp(-25, 25, k) : lerp(-4, 4, k);
+  return {
+    longitude: c.longitude,
+    latitude: c.latitude,
+    zoom: toMapLibreZoom(c.zoom, minSidePx, c.latitude),
+    pitch,
+    bearing: heading + drift,
+  };
+}

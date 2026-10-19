@@ -29,6 +29,8 @@ export interface ImageryConfig {
   cacheDir: string;
   baseImagePath: string;
   fetchTimeoutMs: number;
+  /** Folder of prepared imagery regions (XYZ tiles plus region.json), used before the network provider. */
+  regionsDir: string | null;
 }
 
 export const BASE_ATTRIBUTION = "Imagery: NASA Blue Marble";
@@ -59,7 +61,98 @@ export function imageryConfigFromEnv(env: NodeJS.ProcessEnv = process.env): Imag
     cacheDir: path.resolve(env.SATELLITE_CACHE_DIR ?? path.join(root, "storage", "cache", "tiles")),
     baseImagePath: path.resolve(env.ATLAS_BASE_IMAGERY ?? path.join(root, "assets", "imagery", "blue-marble-4096.jpg")),
     fetchTimeoutMs: Number(env.SATELLITE_FETCH_TIMEOUT_MS ?? 10_000),
+    regionsDir: env.SATELLITE_REGIONS_DIR === "none" ? null : path.resolve(env.SATELLITE_REGIONS_DIR ?? path.join(root, "assets", "imagery", "regions")),
   };
+}
+
+/** Elevation tiles for the 3D view (Terrarium-encoded PNG). */
+export interface TerrainConfig {
+  tileUrl: string | null;
+  attribution: string;
+  maxZoom: number;
+  cacheDir: string;
+}
+
+export const TERRAIN_ATTRIBUTION = "Terrain: Mapzen Terrain Tiles on AWS (SRTM, GMTED2010, ETOPO1 and others)";
+
+export function terrainConfigFromEnv(env: NodeJS.ProcessEnv = process.env): TerrainConfig {
+  const root = findRepoRoot();
+  const url = env.TERRAIN_TILE_URL?.trim();
+  return {
+    tileUrl: url === "none" ? null : url || "https://elevation-tiles-prod.s3.amazonaws.com/terrarium/{z}/{x}/{y}.png",
+    attribution: env.TERRAIN_ATTRIBUTION?.trim() || TERRAIN_ATTRIBUTION,
+    maxZoom: Math.max(1, Math.min(15, Number(env.TERRAIN_MAX_ZOOM ?? 12) || 12)),
+    cacheDir: path.resolve(env.TERRAIN_CACHE_DIR ?? path.join(root, "storage", "cache", "terrain")),
+  };
+}
+
+/** A TileFetcher for elevation tiles, sharing the cache, retry and back-off logic. */
+export function terrainFetcher(t: TerrainConfig): TileFetcher {
+  return new TileFetcher({
+    provider: t.tileUrl ? "custom" : "none",
+    tileUrl: t.tileUrl,
+    tileKey: null,
+    tileAttribution: t.attribution,
+    maxZoom: t.maxZoom,
+    cacheDir: t.cacheDir,
+    baseImagePath: "",
+    fetchTimeoutMs: 15_000,
+    regionsDir: null,
+  });
+}
+
+export interface ImageryRegion {
+  name: string;
+  attribution: string;
+  license?: string;
+  /** [west, south, east, north] in degrees. */
+  bbox: [number, number, number, number];
+  minZoom: number;
+  maxZoom: number;
+  dir: string;
+}
+
+/**
+ * Prepared imagery regions on disk, such as a Sentinel-2 mosaic built with
+ * scripts/imagery/bake_sentinel2.py. Each region folder holds {z}/{x}/{y}.jpg
+ * (or .png where the region's edge leaves part of a tile empty) and region.json.
+ */
+export class RegionTileStore {
+  readonly regions: ImageryRegion[];
+
+  constructor(dir: string | null) {
+    this.regions = [];
+    if (!dir || !fs.existsSync(dir)) return;
+    for (const name of fs.readdirSync(dir).sort()) {
+      const meta = path.join(dir, name, "region.json");
+      if (!fs.existsSync(meta)) continue;
+      try {
+        const r = JSON.parse(fs.readFileSync(meta, "utf8")) as Omit<ImageryRegion, "dir">;
+        if (!r.attribution || !Array.isArray(r.bbox)) continue;
+        this.regions.push({ ...r, name: r.name ?? name, dir: path.join(dir, name) });
+      } catch {
+        /* unreadable region.json: skip the region */
+      }
+    }
+  }
+
+  getTile(z: number, x: number, y: number): { body: Buffer; region: ImageryRegion } | null {
+    for (const r of this.regions) {
+      if (z < r.minZoom || z > r.maxZoom) continue;
+      const [x0, y1] = lonLatToTile(r.bbox[0], r.bbox[1], z);
+      const [x1, y0] = lonLatToTile(r.bbox[2], r.bbox[3], z);
+      if (x < Math.floor(x0) || x > Math.floor(x1) || y < Math.floor(y0) || y > Math.floor(y1)) continue;
+      for (const ext of [".jpg", ".png"]) {
+        const f = path.join(r.dir, String(z), String(x), `${y}${ext}`);
+        try {
+          return { body: fs.readFileSync(f), region: r };
+        } catch {
+          /* not in this region */
+        }
+      }
+    }
+    return null;
+  }
 }
 
 export interface ImageryStatus {
@@ -202,15 +295,26 @@ export class TileFetcher {
   private active = 0;
   private queue: (() => void)[] = [];
   lastError: string | null = null;
+  readonly regions: RegionTileStore;
+  /** Credit lines for every tile handed out since the last reset (regions and provider). */
+  readonly usedSources = new Set<string>();
 
-  constructor(private readonly cfg: ImageryConfig, private readonly concurrency = 6) {}
+  constructor(private readonly cfg: ImageryConfig, private readonly concurrency = 6) {
+    this.regions = new RegionTileStore(cfg.regionsDir);
+  }
 
-  get enabled(): boolean {
+  /** True when the network provider is configured. */
+  get providerEnabled(): boolean {
     return this.cfg.provider !== "none" && !!this.cfg.tileUrl && describeImagery(this.cfg).issues.every((i) => i.startsWith("Base imagery"));
   }
 
+  /** True when any detail source exists: the provider or a prepared region. */
+  get enabled(): boolean {
+    return this.providerEnabled || this.regions.regions.length > 0;
+  }
+
   get available(): boolean {
-    return this.enabled && Date.now() >= this.skipUntil;
+    return this.providerEnabled && Date.now() >= this.skipUntil;
   }
 
   private cachePath(z: number, x: number, y: number): string {
@@ -233,13 +337,21 @@ export class TileFetcher {
     if (!this.enabled || z < 0 || z > this.cfg.maxZoom || y < 0 || y >= 2 ** z) return Promise.resolve(null);
     const n = 2 ** z;
     const wx = ((x % n) + n) % n;
+    const local = this.regions.getTile(z, wx, y);
+    if (local) {
+      this.usedSources.add(local.region.attribution);
+      return Promise.resolve(local.body);
+    }
+    if (!this.providerEnabled) return Promise.resolve(null);
     const file = this.cachePath(z, wx, y);
     const key = `${z}/${wx}/${y}`;
     const existing = this.inflight.get(key);
     if (existing) return existing;
     const p = (async () => {
       try {
-        return await fs.promises.readFile(file);
+        const cached = await fs.promises.readFile(file);
+        this.usedSources.add(this.cfg.tileAttribution);
+        return cached;
       } catch {
         /* not cached */
       }
@@ -258,6 +370,7 @@ export class TileFetcher {
           await fs.promises.writeFile(`${file}.tmp`, buf);
           await fs.promises.rename(`${file}.tmp`, file);
           this.failures = 0;
+          this.usedSources.add(this.cfg.tileAttribution);
           return buf;
         } catch (err) {
           this.lastError = `${(err as Error).message}`.slice(0, 200);
@@ -367,10 +480,24 @@ export interface ServedTile {
  */
 export class ImageryTileService {
   readonly fetcher: TileFetcher;
+  /** Elevation tiles for the 3D preview; null when terrain is off. */
+  readonly terrain: TileFetcher | null;
   private readonly baseTiles = new Map<string, Promise<Buffer>>();
 
-  constructor(readonly cfg: ImageryConfig) {
+  constructor(
+    readonly cfg: ImageryConfig,
+    readonly terrainCfg: TerrainConfig | null = null,
+  ) {
     this.fetcher = new TileFetcher(cfg);
+    this.terrain = terrainCfg?.tileUrl ? terrainFetcher(terrainCfg) : null;
+  }
+
+  /** One elevation tile (Terrarium PNG), or null when terrain is off or the tile is out of range. */
+  async getTerrainTile(z: number, x: number, y: number): Promise<ServedTile | null> {
+    const n = 2 ** z;
+    if (!this.terrain || !Number.isInteger(z) || !Number.isInteger(x) || !Number.isInteger(y) || z < 0 || z > this.terrainCfg!.maxZoom || x < 0 || x >= n || y < 0 || y >= n) return null;
+    const buf = await this.terrain.getTile(z, x, y);
+    return buf ? { body: buf, contentType: sniffImageType(buf), source: "detail" } : null;
   }
 
   /** Highest zoom the preview should request. */
@@ -378,14 +505,34 @@ export class ImageryTileService {
     return this.fetcher.enabled ? this.cfg.maxZoom : BASE_TILE_MAX_ZOOM;
   }
 
-  async getTile(z: number, x: number, y: number): Promise<ServedTile | null> {
+  /**
+   * One tile. layer "any" (the preview) returns detail imagery composited over
+   * the base where the detail tile is partly empty, else the base tile; "base"
+   * and "detail" return only that layer (the 3D renderer stacks them itself).
+   */
+  async getTile(z: number, x: number, y: number, layer: "any" | "base" | "detail" = "any"): Promise<ServedTile | null> {
     const n = 2 ** z;
     if (!Number.isInteger(z) || !Number.isInteger(x) || !Number.isInteger(y) || z < 0 || z > 18 || x < 0 || x >= n || y < 0 || y >= n) return null;
-    if (z >= 4 && this.fetcher.enabled) {
+    if (layer !== "base" && z >= 4 && this.fetcher.enabled) {
       const buf = await this.fetcher.getTile(z, x, y);
-      if (buf) return { body: buf, contentType: sniffImageType(buf), source: "detail" };
+      if (buf) {
+        const type = sniffImageType(buf);
+        if (layer === "detail" || type !== "image/png") return { body: buf, contentType: type, source: "detail" };
+        const base = await this.baseTile(z, x, y);
+        if (!base) return { body: buf, contentType: type, source: "detail" };
+        const canvas = createCanvas(256, 256);
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(await loadImage(base), 0, 0);
+        ctx.drawImage(await loadImage(buf), 0, 0, 256, 256);
+        return { body: await canvas.encode("jpeg", 88), contentType: "image/jpeg", source: "detail" };
+      }
     }
-    if (z > BASE_TILE_MAX_ZOOM) return null;
+    if (layer === "detail" || z > BASE_TILE_MAX_ZOOM) return null;
+    const body = await this.baseTile(z, x, y);
+    return body ? { body, contentType: "image/jpeg", source: "base" } : null;
+  }
+
+  private async baseTile(z: number, x: number, y: number): Promise<Buffer | null> {
     const base = await loadBaseImagery(this.cfg);
     if (!base) return null;
     const key = `${z}/${x}/${y}`;
@@ -396,7 +543,7 @@ export class ImageryTileService {
       // Small LRU: drop the oldest entries.
       if (this.baseTiles.size > 2000) this.baseTiles.delete(this.baseTiles.keys().next().value!);
     }
-    return { body: await p, contentType: "image/jpeg", source: "base" };
+    return p;
   }
 }
 

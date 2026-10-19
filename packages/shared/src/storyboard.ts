@@ -77,6 +77,10 @@ export const cameraSchema = z.object({
     .object({ latitude: latitudeSchema, longitude: longitudeSchema })
     .optional(),
   easing: z.enum(["linear", "ease_in_out"]).default("ease_in_out"),
+  /** 3D view only: camera tilt in degrees (0 = straight down). Defaults to a tilt chosen from the zoom. */
+  pitch: z.number().min(0).max(75).optional(),
+  /** 3D view only: compass heading in degrees the camera faces (0 = north). */
+  bearing: z.number().min(-180).max(180).optional(),
 });
 export type Camera = z.infer<typeof cameraSchema>;
 
@@ -138,7 +142,8 @@ export type OverlayType = Overlay["type"];
 
 export const SCENE_STATUSES = ["planned", "edited", "approved"] as const;
 
-export const BASEMAPS = ["satellite", "vector"] as const;
+/** satellite3d: tilted 3D terrain with satellite imagery; satellite: flat orthographic globe; vector: flat drawn map. */
+export const BASEMAPS = ["satellite3d", "satellite", "vector"] as const;
 export type Basemap = (typeof BASEMAPS)[number];
 
 export const MIN_SCENE_SECONDS = 2;

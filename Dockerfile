@@ -24,6 +24,11 @@ RUN pnpm --filter @atlas/web build && pnpm --filter @atlas/api build && pnpm --f
 
 FROM base AS runtime
 ENV NODE_ENV=production
+# Headless Chromium draws the 3D terrain view (software WebGL; no GPU needed).
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends chromium \
+  && rm -rf /var/lib/apt/lists/*
+ENV CHROMIUM_PATH=/usr/bin/chromium
 COPY --from=build /app /app
 RUN useradd --system --uid 10001 atlas && mkdir -p /app/storage && chown -R atlas /app/storage
 USER atlas

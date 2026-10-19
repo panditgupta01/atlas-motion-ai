@@ -254,7 +254,7 @@ export function EditorPage() {
             {draft.formats.length > 1 && (
               <Segmented label="Preview format" value={format} onChange={setFormat} options={draft.formats.map((f) => ({ value: f, label: f }))} />
             )}
-            <Segmented label="Base map" value={draft.basemap} onChange={(basemap) => store.updateStoryboard({ basemap })} options={[{ value: "satellite", label: "Satellite" }, { value: "vector", label: "Map" }]} />
+            <Segmented label="Base map" value={draft.basemap} onChange={(basemap) => store.updateStoryboard({ basemap })} options={[{ value: "satellite3d", label: "3D" }, { value: "satellite", label: "Satellite" }, { value: "vector", label: "Map" }]} />
             <Button size="sm" variant="ghost" aria-label={playback.playing ? "Pause" : "Play"} icon={playback.playing ? <Pause className="size-4" /> : <Play className="size-4" />} onClick={() => {
               if (!playback.playing && playback.t >= 1) playback.setT(0);
               playback.setPlaying(!playback.playing);

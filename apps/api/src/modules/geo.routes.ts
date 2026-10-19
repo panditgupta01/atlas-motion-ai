@@ -19,10 +19,11 @@ export function geoRoutes(opts: { imagery: ImageryTileService; authed: RequestHa
       provider: d.provider,
       label: d.label,
       license: d.license,
-      attribution: imagery.fetcher.enabled ? [d.attribution, "NASA Blue Marble"].filter(Boolean) : ["NASA Blue Marble"],
+      attribution: [...imagery.fetcher.regions.regions.map((g) => g.attribution), ...(imagery.fetcher.providerEnabled ? [d.attribution] : []), "NASA Blue Marble"].filter(Boolean),
       detail: imagery.fetcher.enabled,
       maxZoom: imagery.maxZoom,
       tiles: "/api/v1/geo/imagery/tiles/{z}/{x}/{y}",
+      terrain: imagery.terrain ? { tiles: "/api/v1/geo/terrain/{z}/{x}/{y}", encoding: "terrarium", maxZoom: imagery.terrainCfg!.maxZoom, attribution: imagery.terrainCfg!.attribution } : null,
     });
   });
 
@@ -41,6 +42,15 @@ export function geoRoutes(opts: { imagery: ImageryTileService; authed: RequestHa
     if (!tile) return res.status(404).json({ error: { code: "not_found", message: "No imagery for this tile." } });
     res.setHeader("Cache-Control", "private, max-age=86400");
     res.setHeader("X-Imagery-Source", tile.source);
+    res.type(tile.contentType).send(tile.body);
+  });
+
+  /** Elevation tiles for the 3D preview, signed-in only like the imagery tiles. */
+  r.get("/terrain/:z/:x/:y", opts.authed, tileLimiter, async (req, res) => {
+    const [z, x, y] = [req.params.z, req.params.x, String(req.params.y).replace(/\.png$/, "")].map((v) => (/^\d{1,6}$/.test(String(v)) ? Number(v) : NaN));
+    const tile = await imagery.getTerrainTile(z!, x!, y!);
+    if (!tile) return res.status(404).json({ error: { code: "not_found", message: "No terrain for this tile." } });
+    res.setHeader("Cache-Control", "private, max-age=86400");
     res.type(tile.contentType).send(tile.body);
   });
 

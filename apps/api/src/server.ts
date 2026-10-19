@@ -1,6 +1,6 @@
 import { connectDatabase, createLogger, createStorage, disconnectDatabase, loadConfig, ConfigError, UsageService } from "@atlas/server-core";
 import { PlannerRegistry } from "@atlas/storyboard";
-import { EspeakTtsProvider, imageryConfigFromEnv, ImageryTileService, TtsRegistry } from "@atlas/video-engine";
+import { EspeakTtsProvider, imageryConfigFromEnv, ImageryTileService, terrainConfigFromEnv, TtsRegistry } from "@atlas/video-engine";
 import { createApp } from "./app.js";
 import { createBullQueuePort } from "./queue-adapter.js";
 
@@ -27,7 +27,7 @@ async function main() {
     queue,
     planners: new PlannerRegistry({ anthropicApiKey: config.ANTHROPIC_API_KEY, anthropicModel: config.ANTHROPIC_MODEL, defaultProvider: config.PLANNER_DEFAULT }),
     tts: new TtsRegistry([new EspeakTtsProvider()]),
-    imagery: new ImageryTileService(imageryConfigFromEnv()),
+    imagery: new ImageryTileService(imageryConfigFromEnv(), terrainConfigFromEnv()),
     usage: new UsageService({ rendersPerDay: config.USAGE_RENDERS_PER_DAY, plansPerHour: config.USAGE_PLANS_PER_HOUR }),
   });
   const server = app.listen(config.PORT, () => logger.info({ port: config.PORT }, "API listening"));

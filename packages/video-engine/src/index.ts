@@ -7,3 +7,4 @@ export * from "./tts.js";
 export * from "./hash.js";
 export * from "./compose.js";
 export * from "./imagery.js";
+export * from "./globe3d.js";

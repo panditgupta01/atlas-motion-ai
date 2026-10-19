@@ -80,6 +80,9 @@ describe.skipIf(!ready)("end to end: prompt → storyboard → edit → render �
 
     // Edit: rewrite the first scene's narration, as a reviewer would.
     const sb = structuredClone(planned.storyboard);
+    expect(sb.basemap).toBe("satellite3d");
+    // The 3D view has its own test (render-3d); the flat view keeps this pipeline test quick.
+    sb.basemap = "satellite";
     sb.scenes[0].narration = "Nepal sits between China and India.";
     sb.scenes[0].claims = [{ text: "Nepal sits between China and India.", sourceRefIds: ["natural-earth"], status: "sourced" }];
     const saved = await a.patch(`/api/v1/projects/${projectId}/storyboard`, { storyboard: sb, baseVersion: planned.version });

@@ -1,6 +1,6 @@
 import type { FrameSize } from "@atlas/shared";
 
-export { cameraAt, easeInOut, lerpLongitude, type CameraState } from "@atlas/shared";
+export { camera3dAt, cameraAt, defaultPitch, easeInOut, lerpLongitude, toMapLibreZoom, type Camera3D, type CameraState } from "@atlas/shared";
 
 /** Orthographic projection scale (pixels per radian) for a zoom level. */
 export function scaleForZoom(zoom: number, size: FrameSize): number {

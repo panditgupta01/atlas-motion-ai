@@ -1,6 +1,6 @@
 # AtlasMotion AI: build status
 
-Status as of 2026-10-19. This covers phases A to F of the master prompt. "Verified" means the code was run in the development container and the result was checked, not just written.
+Status as of 2026-10-19. This covers phases A to F of the master prompt, plus the satellite (G) and 3D terrain (H) requests. "Verified" means the code was run in the development container and the result was checked, not just written.
 
 ## Phase summary
 
@@ -13,6 +13,7 @@ Status as of 2026-10-19. This covers phases A to F of the master prompt. "Verifi
 | E | Web studio: landing, auth, dashboard, new project, storyboard editor with globe preview, render studio, export | Done, verified in headless Chromium |
 | F | Tests, lint, builds, check-env, docker-compose, Dockerfile, README | Done. The Docker image was not built (registry rate limit) |
 | G | Satellite base map: NASA Blue Marble base, detail tiles (Sentinel-2 cloudless 2016 by default, or a custom keyed provider), server tile proxy for the preview, Satellite/Map toggle | Done. The tile path is verified against a local fixture tile server only, because this container cannot reach any public tile host |
+| H | 3D terrain view (default for new projects): MapLibre GL in headless Chromium with terrain, tilted and turning camera, sky; Copernicus Sentinel-2 region baker; 3D editor preview; Chromium fallback to the flat view | Done, verified with real MP4 output (software WebGL) |
 
 ## Commands that were run and passed
 
@@ -77,6 +78,14 @@ Requested on 2026-10-19: "My output expectation is Google Maps satellite view".
 - **Bundled builds could not find the data folder.** They resolved the repository root relative to source files. They now search upward for `pnpm-workspace.yaml`, and `ATLAS_ROOT` can override this.
 - **Rate-limit key fallback was not IPv6-safe.** The express-rate-limit warning was fixed.
 
+## 3D terrain view (phase H)
+
+Requested on 2026-10-19: "i mean in a goggle map studio", read as the Google Earth Studio look (photoreal 3D terrain with cinematic camera moves).
+
+- Google's Photorealistic 3D Tiles allow only promotional videos of 30 s or less about the app, and forbid caching. Google Earth Studio offers no licence for commercial use of its imagery. So the 3D view is built from open sources: Copernicus Sentinel-2 imagery, Terrain Tiles on AWS elevation, NASA Blue Marble and Natural Earth.
+- Verified: the unit tests for the 3D camera, regions and terrain switches, the 3D render e2e (Chromium, validated MP4, lit centre pixel), the Chromium-missing fallback, and the terrain route's sign-in check. The whole suite (102 tests), lint and typecheck pass.
+- Speed in this container: about 4.5 s per 960×540 frame (SwiftShader, 4 cores), with about 20 s of tile warm-up on the first frame of a session.
+
 ## External setup needed for production
 
 These are not done, and none of them were purchased or configured:
@@ -85,13 +94,16 @@ These are not done, and none of them were purchased or configured:
 - An S3-compatible bucket plus credentials, when the API and worker run on different hosts.
 - HTTPS hosting, a strong `JWT_SECRET`, and `COOKIE_SECURE=true`.
 - Optionally, a natural-sounding TTS provider, implementing the `TtsProvider` interface.
+- Chromium on the worker (the Docker image installs it). A GPU host makes 3D frames much faster.
+- Prepared imagery regions for the areas you cover, built with `scripts/imagery/bake_sentinel2.py` (needs outbound HTTPS to `sentinel-cogs.s3.us-west-2.amazonaws.com`), and HTTPS to `elevation-tiles-prod.s3.amazonaws.com` for terrain.
 - Outbound HTTPS from the worker and API to the satellite tile host (`tiles.maps.eox.at` by default), or a keyed provider in `SATELLITE_*` whose terms allow video.
 
 ## Known limitations
 
 These are also in the README:
 
-- The renderer is 2D only, with no 3D terrain.
+- 3D frames are slow without a GPU.
+- Sharp 3D close-ups exist only where a prepared region exists (the Koshi basin today) or a detail provider is reachable.
 - Without detail tiles, satellite close-ups use Blue Marble and look soft.
 - There is no basin, flood-extent, ocean-name or live data.
 - espeak-ng narration sounds robotic.

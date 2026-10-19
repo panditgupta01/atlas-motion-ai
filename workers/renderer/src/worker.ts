@@ -62,11 +62,12 @@ async function main() {
   registerFonts();
   await connectDatabase(config.MONGODB_URI);
   const tts = new TtsRegistry([new EspeakTtsProvider()]);
+  const renderer = new MapSceneRenderer();
   const ctx: WorkerContext = {
     config,
     storage: createStorage(config),
     tts,
-    renderer: new MapSceneRenderer(),
+    renderer,
     logger,
     workerId: `${os.hostname()}:${process.pid}`,
   };
@@ -87,6 +88,7 @@ async function main() {
     logger.info({ signal }, "worker shutting down; active jobs will resume on the next start");
     clearInterval(maintenance);
     await worker.close();
+    await renderer.close();
     await queue.close();
     await disconnectDatabase();
     process.exit(0);

@@ -8,8 +8,8 @@ export default defineConfig({
           name: "unit",
           include: ["tests/unit/**/*.test.ts"],
           environment: "node",
-          // Renders in tests never fetch real satellite tiles; the tile path is tested against a local fixture server.
-          env: { SATELLITE_PROVIDER: "none" },
+          // Renders in tests never fetch real tiles or read prepared regions; tile paths are tested against local fixtures.
+          env: { SATELLITE_PROVIDER: "none", SATELLITE_REGIONS_DIR: "none", TERRAIN_TILE_URL: "none" },
         },
       },
       {
@@ -17,8 +17,8 @@ export default defineConfig({
           name: "integration",
           include: ["tests/integration/**/*.test.ts"],
           environment: "node",
-          // Renders in tests never fetch real satellite tiles; the tile path is tested against a local fixture server.
-          env: { SATELLITE_PROVIDER: "none" },
+          // Renders in tests never fetch real tiles or read prepared regions; tile paths are tested against local fixtures.
+          env: { SATELLITE_PROVIDER: "none", SATELLITE_REGIONS_DIR: "none", TERRAIN_TILE_URL: "none" },
           // One MongoDB database per file; files run in sequence to keep the shared mongod quiet.
           fileParallelism: false,
           testTimeout: 30_000,
@@ -30,8 +30,8 @@ export default defineConfig({
           name: "e2e",
           include: ["tests/e2e/**/*.test.ts"],
           environment: "node",
-          // Renders in tests never fetch real satellite tiles; the tile path is tested against a local fixture server.
-          env: { SATELLITE_PROVIDER: "none" },
+          // Renders in tests never fetch real tiles or read prepared regions; tile paths are tested against local fixtures.
+          env: { SATELLITE_PROVIDER: "none", SATELLITE_REGIONS_DIR: "none", TERRAIN_TILE_URL: "none" },
           fileParallelism: false,
           testTimeout: 300_000,
           hookTimeout: 120_000,

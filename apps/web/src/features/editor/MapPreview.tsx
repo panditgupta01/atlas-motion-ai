@@ -4,8 +4,8 @@ import { Map as MapLibreMap, Marker, setWorkerUrl, type GeoJSONSource, type Styl
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import type { Feature, FeatureCollection } from "geojson";
 import { useQuery } from "@tanstack/react-query";
-import { FORMAT_LAYOUTS, cameraAt, type AspectFormat, type Basemap, type Overlay, type Scene } from "@atlas/shared";
-import { api, imageryTileUrl, layerUrl } from "../../services/api";
+import { FORMAT_LAYOUTS, camera3dAt, cameraAt, toMapLibreZoom, type AspectFormat, type Basemap, type Overlay, type Scene } from "@atlas/shared";
+import { api, imageryTileUrl, layerUrl, terrainTileUrl, type ImageryInfo } from "../../services/api";
 import { useImagery } from "../../hooks/queries";
 
 const PALETTE = {
@@ -21,8 +21,12 @@ setWorkerUrl(workerUrl);
 
 const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
 
-function baseStyle(basemap: Basemap, imageryMaxZoom: number): StyleSpecification {
-  const sat = basemap === "satellite";
+/** Same relief exaggeration as the renderer's 3D view. */
+const TERRAIN_EXAGGERATION = 1.3;
+
+function baseStyle(basemap: Basemap, imageryMaxZoom: number, terrain: ImageryInfo["terrain"]): StyleSpecification {
+  const sat = basemap !== "vector";
+  const relief = basemap === "satellite3d" && terrain ? terrain : null;
   const show = (on: boolean) => ({ visibility: on ? ("visible" as const) : ("none" as const) });
   return {
     version: 8,
@@ -34,7 +38,10 @@ function baseStyle(basemap: Basemap, imageryMaxZoom: number): StyleSpecification
       rivers: { type: "geojson", data: layerUrl("rivers") },
       overlays: { type: "geojson", data: EMPTY },
       routes: { type: "geojson", data: EMPTY },
+      ...(relief ? { dem: { type: "raster-dem" as const, tiles: [terrainTileUrl()], tileSize: 256, encoding: "terrarium" as const, maxzoom: relief.maxZoom } } : {}),
     },
+    ...(relief ? { terrain: { source: "dem", exaggeration: TERRAIN_EXAGGERATION } } : {}),
+    ...(basemap === "satellite3d" ? { sky: { "sky-color": "#0b1d33", "horizon-color": "#8fb4d9", "fog-color": "#a9c4de", "sky-horizon-blend": 0.6, "horizon-fog-blend": 0.6, "fog-ground-blend": 0.8, "atmosphere-blend": ["interpolate", ["linear"], ["zoom"], 0, 1, 6, 1, 9, 0.2] } } : {}),
     layers: [
       { id: "ocean", type: "background", paint: { "background-color": PALETTE.ocean } },
       { id: "satellite", type: "raster", source: "satellite", layout: show(sat), paint: { "raster-contrast": 0.08, "raster-brightness-max": 0.92, "raster-fade-duration": 0 } },
@@ -49,13 +56,6 @@ function baseStyle(basemap: Basemap, imageryMaxZoom: number): StyleSpecification
       { id: "routes", type: "line", source: "routes", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["coalesce", ["get", "color"], PALETTE.route], "line-width": 3 } },
     ],
   };
-}
-
-/** Convert the renderer's zoom (0 = whole globe filling ~90% of the short side) to a MapLibre zoom. */
-export function toMapLibreZoom(zoom: number, minSidePx: number, latitude: number): number {
-  const radiusPx = minSidePx * 0.45 * Math.pow(2, zoom);
-  const cosLat = Math.max(0.2, Math.cos((latitude * Math.PI) / 180));
-  return Math.log2((radiusPx * 2 * Math.PI * cosLat) / 512);
 }
 
 function revealLine(coords: [number, number][], t: number): [number, number][] {
@@ -82,7 +82,8 @@ interface Props {
 export function MapPreview({ scenes, sceneIndex, format, basemap, t }: Props) {
   const imagery = useImagery();
   const imageryMaxZoom = imagery.data?.maxZoom ?? 7;
-  const credits = basemap === "satellite" ? [...(imagery.data?.attribution ?? ["NASA Blue Marble"]), "Natural Earth"] : ["Natural Earth"];
+  const terrain = imagery.data?.terrain ?? null;
+  const credits = basemap === "vector" ? ["Natural Earth"] : [...(imagery.data?.attribution ?? ["NASA Blue Marble"]), ...(basemap === "satellite3d" && terrain ? [terrain.attribution] : []), "Natural Earth"];
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const markersRef = useRef<Marker[]>([]);
@@ -103,9 +104,10 @@ export function MapPreview({ scenes, sceneIndex, format, basemap, t }: Props) {
     if (!containerRef.current) return;
     const map = new MapLibreMap({
       container: containerRef.current,
-      style: baseStyle(basemap, imageryMaxZoom),
+      style: baseStyle(basemap, imageryMaxZoom, terrain),
       center: [0, 20],
       zoom: 1,
+      maxPitch: 75,
       interactive: false,
       attributionControl: { compact: true, customAttribution: credits },
       fadeDuration: 0,
@@ -124,7 +126,7 @@ export function MapPreview({ scenes, sceneIndex, format, basemap, t }: Props) {
       setReady(false);
     };
     // credits follow basemap and the imagery query, which are dependencies.
-  }, [format, basemap, imageryMaxZoom]);
+  }, [format, basemap, imageryMaxZoom, terrain]);
 
   // Highlighted countries and rivers.
   useEffect(() => {
@@ -138,9 +140,15 @@ export function MapPreview({ scenes, sceneIndex, format, basemap, t }: Props) {
     const map = mapRef.current;
     if (!map || !ready || !scene || !containerRef.current) return;
     const layout = FORMAT_LAYOUTS[format];
-    const cam = cameraAt(scene, previous, t, layout);
     const { width, height } = containerRef.current.getBoundingClientRect();
-    map.jumpTo({ center: [cam.longitude, cam.latitude], zoom: toMapLibreZoom(cam.zoom, Math.min(width, height), cam.latitude), bearing: cam.roll });
+    if (basemap === "satellite3d") {
+      // The same tilted, slowly turning camera the renderer's 3D view uses.
+      const c3 = camera3dAt(scene, previous, t, layout, Math.min(width, height));
+      map.jumpTo({ center: [c3.longitude, c3.latitude], zoom: c3.zoom, pitch: c3.pitch, bearing: c3.bearing });
+    } else {
+      const cam = cameraAt(scene, previous, t, layout);
+      map.jumpTo({ center: [cam.longitude, cam.latitude], zoom: toMapLibreZoom(cam.zoom, Math.min(width, height), cam.latitude), bearing: cam.roll, pitch: 0 });
+    }
 
     const lines: Feature[] = [];
     for (const o of scene.overlays) {
@@ -181,7 +189,7 @@ export function MapPreview({ scenes, sceneIndex, format, basemap, t }: Props) {
       else if (o.type === "arrow" && o.label && labelsVisible) addLabel(o.to, o.label, false);
       else if (o.type === "route" && o.label && labelsVisible) addLabel(o.coordinates[Math.floor(o.coordinates.length / 2)]!, o.label, false);
     }
-  }, [ready, scene, previous, t, format]);
+  }, [ready, scene, previous, t, format, basemap]);
 
   const title = scene?.overlays.find((o): o is Extract<Overlay, { type: "title_card" }> => o.type === "title_card");
   const legend = scene?.overlays.find((o): o is Extract<Overlay, { type: "legend" }> => o.type === "legend");

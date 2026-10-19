@@ -126,11 +126,18 @@ export interface ImageryInfo {
   detail: boolean;
   maxZoom: number;
   tiles: string;
+  /** Elevation tiles for the 3D view; null when the server has terrain off. */
+  terrain: { tiles: string; encoding: "terrarium"; maxZoom: number; attribution: string } | null;
 }
 
 /** Absolute tile URL template: MapLibre fetches tiles from a worker, where relative URLs do not resolve. */
 export function imageryTileUrl(): string {
   const path = `${BASE}/geo/imagery/tiles/{z}/{x}/{y}`;
+  return path.startsWith("/") ? `${window.location.origin}${path}` : path;
+}
+
+export function terrainTileUrl(): string {
+  const path = `${BASE}/geo/terrain/{z}/{x}/{y}`;
   return path.startsWith("/") ? `${window.location.origin}${path}` : path;
 }
 

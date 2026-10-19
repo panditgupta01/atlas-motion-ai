@@ -57,6 +57,13 @@ describe.skipIf(!hasMongo)("auth and projects API (real MongoDB)", () => {
     expect((await a.get("/api/v1/geo/imagery/tiles/x/1/1")).status).toBe(404);
   });
 
+  it("serves 3D terrain tiles only to signed-in users, and says when terrain is off", async () => {
+    expect((await request(env.app).get("/api/v1/geo/imagery")).body.terrain).toBeNull();
+    expect((await request(env.app).get("/api/v1/geo/terrain/3/1/1")).status).toBe(401);
+    const a = await signedInAgent(env.app);
+    expect((await a.get("/api/v1/geo/terrain/3/1/1.png")).status).toBe(404);
+  });
+
   it("requires a session for project routes", async () => {
     expect((await request(env.app).get("/api/v1/projects")).status).toBe(401);
   });
