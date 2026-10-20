@@ -75,7 +75,7 @@ The first start downloads and builds everything, which takes a while. Later star
 - The narration voice is espeak-ng: real and offline, but robotic. The TTS layer is a provider interface, so a cloud voice can be added. None is wired up because none was configured.
 - The S3 storage driver is implemented but has not been tested against a real bucket.
 - The Claude planner is covered by tests against an SDK test double only. It has not been run against the live API in this repository.
-- The Docker image has not been built and verified. The registry rate-limited the build in the development environment. `docker-compose.yml` passes `docker compose config`.
+- The Docker stack is built and checked in CI (`.github/workflows/one-click.yml`): it starts with `start.sh`, renders a video through the API and worker, prepares the Nepal imagery (about 15 minutes on a GitHub runner) and renders again. `start.bat` and `start.command` have not been run on real Windows or Mac machines yet.
 
 ## Satellite imagery
 
