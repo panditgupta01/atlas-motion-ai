@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AtlasMotion AI</title>
+<meta name="description" content="Prompt-driven 3D satellite map documentaries in 9:16 and 16:9, built from openly licensed imagery and elevation.">
+<meta property="og:title" content="AtlasMotion AI">
+<meta property="og:description" content="Turn a prompt into an animated 3D satellite map documentary.">
+<meta property="og:image" content="assets/poster-16x9.jpg">
+<style>
+  :root {
+    --bg: #0b0e11; --surface: #12171c; --surface-2: #19202706; --line: #232c35;
+    --fg: #e8edf2; --muted: #9aa7b4; --faint: #6d7a87; --accent: #e0b04c; --accent-ink: #1a1405;
+    --ok: #59c38c; --warn: #e6a23c;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #f6f4ef; --surface: #ffffff; --line: #e2ddd2;
+      --fg: #1b1f24; --muted: #4f5a66; --faint: #7a8490; --accent: #a8740f; --accent-ink: #ffffff;
+      --ok: #23845a; --warn: #a86b10;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Noto Sans Devanagari", sans-serif; }
+  a { color: var(--accent); }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px; }
+  header.top { display: flex; align-items: center; justify-content: space-between; padding: 18px 0; }
+  .brand { font-weight: 650; letter-spacing: .2px; display: flex; gap: 10px; align-items: center; }
+  .brand svg { width: 26px; height: 26px; }
+  .top nav a { color: var(--muted); text-decoration: none; margin-left: 18px; font-size: 14px; }
+  .top nav a:hover { color: var(--fg); }
+  .hero { padding: 40px 0 28px; }
+  .hero h1 { font-size: clamp(30px, 5vw, 48px); line-height: 1.12; margin: 0 0 14px; letter-spacing: -.5px; max-width: 18ch; }
+  .hero p.lede { color: var(--muted); font-size: clamp(16px, 2vw, 19px); max-width: 60ch; margin: 0 0 22px; }
+  .btns { display: flex; flex-wrap: wrap; gap: 10px; }
+  .btn { display: inline-block; padding: 10px 16px; border-radius: 8px; font-weight: 600; font-size: 15px; text-decoration: none; border: 1px solid var(--line); color: var(--fg); background: var(--surface); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .reel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 300px); gap: 16px; margin-top: 30px; align-items: start; }
+  .reel.single { grid-template-columns: minmax(0, 1fr); }
+  figure { margin: 0; }
+  video, .shot img { width: 100%; display: block; border-radius: 10px; border: 1px solid var(--line); background: #000; }
+  figcaption { color: var(--faint); font-size: 13px; margin-top: 8px; }
+  section { padding: 44px 0; border-top: 1px solid var(--line); }
+  section h2 { font-size: 24px; margin: 0 0 6px; letter-spacing: -.2px; }
+  section > .wrap > p.sub { color: var(--muted); margin: 0 0 22px; max-width: 66ch; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
+  .card h3 { margin: 0 0 6px; font-size: 16px; }
+  .card p { margin: 0; color: var(--muted); font-size: 14.5px; }
+  .steps { counter-reset: s; display: grid; gap: 10px; padding: 0; margin: 0; list-style: none; }
+  .steps li { counter-increment: s; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px 12px 52px; position: relative; color: var(--muted); }
+  .steps li strong { color: var(--fg); }
+  .steps li::before { content: counter(s); position: absolute; left: 16px; top: 12px; width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-weight: 700; font-size: 13px; display: grid; place-items: center; }
+  .shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+  .status { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+  .status ul { margin: 8px 0 0; padding-left: 18px; color: var(--muted); font-size: 14.5px; }
+  .tag { display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; }
+  .tag.ok { color: var(--ok); } .tag.warn { color: var(--warn); }
+  pre { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-size: 13.5px; line-height: 1.5; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--faint); font-weight: 600; font-size: 12.5px; text-transform: uppercase; letter-spacing: .4px; }
+  td { color: var(--muted); } td:first-child { color: var(--fg); }
+  .tablewrap { overflow-x: auto; }
+  footer { border-top: 1px solid var(--line); padding: 26px 0 40px; color: var(--faint); font-size: 13px; }
+  @media (max-width: 760px) {
+    .reel { grid-template-columns: minmax(0, 1fr); }
+    .reel figure.vertical { max-width: 320px; }
+    .top nav { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="11" fill="none" stroke="currentColor" stroke-width="2" opacity=".5"/><path d="M5 16h22M16 5c4 4 4 18 0 22M16 5c-4 4-4 18 0 22" fill="none" stroke="currentColor" stroke-width="1.6" opacity=".5"/><circle cx="21" cy="11" r="3" fill="#e0b04c"/></svg>
+      AtlasMotion AI
+    </div>
+    <nav><a href="#how">How it works</a><a href="#status">Status</a><a href="#run">Run it</a><a href="https://github.com/panditgupta01/atlas-motion-ai">GitHub</a></nav>
+  </header>
+
+  <div class="hero">
+    <h1>Prompt in, 3D map documentary out.</h1>
+    <p class="lede">Describe a story about a place in Hindi or English. AtlasMotion plans the scenes, flies a camera over real satellite imagery and terrain, draws borders, rivers and labels, adds narration and captions, and renders validated MP4s in 9:16 and 16:9.</p>
+    <div class="btns">
+      <a class="btn primary" href="https://github.com/panditgupta01/atlas-motion-ai">View the code</a>
+      <a class="btn" href="#run">Run it yourself</a>
+    </div>
+    <div class="reel single" id="reel">
+      <figure>
+        <video src="assets/koshi-flyover-16x9.mp4" poster="assets/poster-16x9.jpg" controls playsinline preload="metadata"></video>
+        <figcaption>Rendered by AtlasMotion from the prompt "Nepal and the Koshi river" (Hindi, 30 s, draft 960×540). Imagery: contains modified Copernicus Sentinel data 2023–2024; NASA Blue Marble. Terrain: Mapzen Terrain Tiles on AWS. Map data: Natural Earth.</figcaption>
+      </figure>
+    </div>
+  </div>
+</div>
+
+<section>
+  <div class="wrap">
+    <h2>What it does</h2>
+    <p class="sub">Everything in the video comes from sources whose licences allow it, and every frame credits them.</p>
+    <div class="grid">
+      <div class="card"><h3>Plans from a prompt</h3><p>An offline gazetteer planner, or Claude when an API key is set, turns your prompt into scenes. Coordinates always come from Natural Earth, never invented.</p></div>
+      <div class="card"><h3>3D satellite flyovers</h3><p>Satellite imagery draped over real elevation, with a tilted camera that zooms, follows routes and slowly turns.</p></div>
+      <div class="card"><h3>Editable storyboard</h3><p>Reorder scenes, edit narration, labels, routes, arrows and legends, and preview the camera live before rendering.</p></div>
+      <div class="card"><h3>Claims need sources</h3><p>Narration claims without a source are flagged and block the render until you resolve them.</p></div>
+      <div class="card"><h3>Narration and captions</h3><p>Offline speech (espeak-ng), loudness normalisation, and Hindi or English captions burned in or as .srt.</p></div>
+      <div class="card"><h3>Validated output</h3><p>Every MP4 is checked with ffprobe and a full decode. Only files that pass are offered for download.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="how">
+  <div class="wrap">
+    <h2>How it works</h2>
+    <p class="sub">A pnpm monorepo: React studio, Express API, BullMQ render worker, MongoDB and Redis.</p>
+    <ol class="steps">
+      <li><strong>Plan.</strong> The prompt becomes a storyboard: places, camera moves, overlays and narration, checked against a schema.</li>
+      <li><strong>Review.</strong> The editor previews each scene with the same camera timeline the renderer uses.</li>
+      <li><strong>Render.</strong> The worker draws each frame (MapLibre GL in headless Chromium for 3D), composites overlays and credits, and encodes per-scene clips that are cached by content.</li>
+      <li><strong>Assemble.</strong> FFmpeg joins clips, mixes narration, burns captions and validates the result.</li>
+    </ol>
+    <div class="shots" style="margin-top:22px">
+      <figure class="shot"><img src="assets/editor.jpg" alt="Storyboard editor with a 3D satellite preview of the Koshi river" loading="lazy"><figcaption>The storyboard editor with the 3D preview.</figcaption></figure>
+      <figure class="shot"><img src="assets/nepal-wide.jpg" alt="3D satellite view across Nepal and the Himalaya" loading="lazy"><figcaption>Nepal from a tilted camera. Imagery: contains modified Copernicus Sentinel data 2023–2024; NASA Blue Marble. Terrain: Mapzen Terrain Tiles on AWS.</figcaption></figure>
+      <figure class="shot"><img src="assets/everest.jpg" alt="3D terrain close-up of the Everest and Khumbu region" loading="lazy"><figcaption>Prototype close-up of the Khumbu region. Imagery: contains modified Copernicus Sentinel data 2023–2024. Terrain: Mapzen Terrain Tiles on AWS (SRTM, GMTED2010, ETOPO1).</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Imagery and licensing</h2>
+    <p class="sub">Exported videos never use Google imagery. Google's terms allow Map Tiles API footage only in short promotional videos about your own app, and Google Earth Studio has no commercial licence. The editor can show a live Google Maps satellite preview when a key is configured.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Source</th><th>Used for</th><th>Licence</th></tr></thead>
+        <tbody>
+          <tr><td>Copernicus Sentinel-2</td><td>Sharp imagery in prepared regions (Nepal today)</td><td>Free and open, commercial use with attribution</td></tr>
+          <tr><td>NASA Blue Marble</td><td>The globe and wide shots</td><td>Public domain</td></tr>
+          <tr><td>Terrain Tiles on AWS</td><td>Elevation for the 3D view</td><td>Free with attribution</td></tr>
+          <tr><td>Natural Earth</td><td>Borders, rivers, place names</td><td>Public domain</td></tr>
+          <tr><td>MapTiler Satellite (optional)</td><td>Sharper imagery everywhere</td><td>Needs a MapTiler video licence</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="status">
+  <div class="wrap">
+    <h2>Status</h2>
+    <p class="sub">A working prototype. This page is a static showcase: rendering needs a server with FFmpeg, Chromium, MongoDB and Redis, so the studio itself is not hosted here.</p>
+    <div class="status">
+      <div class="card"><span class="tag ok">Works</span><ul>
+        <li>Prompt to storyboard, editor, render, download</li>
+        <li>3D, flat satellite and vector map looks</li>
+        <li>9:16 and 16:9, Hindi and English</li>
+        <li>Job tracking, retries, cancellation, caching</li>
+        <li>109 automated tests (unit, integration, end to end)</li>
+      </ul></div>
+      <div class="card"><span class="tag warn">Limits</span><ul>
+        <li>Sharp imagery only where a region is prepared (Nepal)</li>
+        <li>3D frames are slow without a GPU (about 4.5 s each at 960×540)</li>
+        <li>Narration voice is robotic (espeak-ng)</li>
+        <li>No flood, basin or live datasets bundled</li>
+      </ul></div>
+    </div>
+  </div>
+</section>
+
+<section id="run">
+  <div class="wrap">
+    <h2>Run it yourself</h2>
+    <p class="sub">Needs Node 20+, pnpm, MongoDB, Redis, FFmpeg (libx264, libass), espeak-ng, and Chromium for the 3D view.</p>
+<pre><code>git clone https://github.com/panditgupta01/atlas-motion-ai
+cd atlas-motion-ai
+pnpm install
+bash scripts/fetch-assets.sh        # Natural Earth, fonts, Blue Marble
+cp .env.example .env                # set JWT_SECRET and service URLs
+pnpm check:env
+pnpm dev                            # API, worker and studio
+
+# optional: sharp Sentinel-2 imagery for a region
+python3 -m pip install -r scripts/imagery/requirements.txt
+python3 scripts/imagery/bake_sentinel2.py --name nepal-sentinel2 \
+  --bbox 80.0 26.3 88.4 30.5 --max-zoom 11</code></pre>
+    <p class="sub" style="margin-top:14px">Full setup, environment variables and the licensing write-up are in the <a href="https://github.com/panditgupta01/atlas-motion-ai#readme">README</a> and <a href="https://github.com/panditgupta01/atlas-motion-ai/blob/main/docs/IMAGERY_LICENSING.md">docs/IMAGERY_LICENSING.md</a>.</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    AtlasMotion AI by Amarnath Gupta. Imagery: contains modified Copernicus Sentinel data 2023–2024; NASA Blue Marble. Terrain: Mapzen Terrain Tiles on AWS (SRTM, GMTED2010, ETOPO1 and others). Map data: Natural Earth.
+  </div>
+</footer>
+</body>
+</html>
