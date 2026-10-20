@@ -297,7 +297,8 @@ export class MapSceneRenderer implements SceneRenderer {
         exaggeration: TERRAIN_EXAGGERATION,
       });
       const regions = session.imageryFetcher.regions.regions.filter((r) => !window || (r.bbox[0] <= window[2] && r.bbox[2] >= window[0] && r.bbox[1] <= window[3] && r.bbox[3] >= window[1]));
-      const detailCredits = [...regions.map((r) => r.attribution), ...(session.imageryFetcher.providerEnabled ? [describeImagery(this.imageryConfig).attribution] : [])];
+      if (session.imageryFetcher.providerEnabled) await session.imageryFetcher.loadTileJsonAttribution();
+      const detailCredits = [...regions.map((r) => r.attribution), ...(session.imageryFetcher.providerEnabled ? [session.imageryFetcher.attribution] : [])];
       const credits = [...new Set([...detailCredits, BASE_ATTRIBUTION, ...(terrain ? [this.terrainConfig.attribution] : []), "Map data: Natural Earth"])];
       let incomplete = 0;
       for (let i = 0; i < frames; i++) {

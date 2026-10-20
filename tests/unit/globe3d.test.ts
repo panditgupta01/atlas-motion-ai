@@ -67,6 +67,35 @@ describe("prepared imagery regions", () => {
     expect(await fetcher.getTile(8, tx + 40, ty)).toBeNull();
   });
 
+  it("stacks a sharper region's partly transparent edge tile over a wider region", async () => {
+    const d2 = fs.mkdtempSync(path.join(os.tmpdir(), "atlas-stack-"));
+    try {
+      const write = (name: string, maxZoom: number, ext: "png" | "jpg", color: string, half: boolean) => {
+        const cv = createCanvas(256, 256);
+        const g = cv.getContext("2d");
+        g.fillStyle = color;
+        g.fillRect(0, 0, half ? 128 : 256, 256);
+        fs.mkdirSync(path.join(d2, name, "8", String(tx)), { recursive: true });
+        fs.writeFileSync(path.join(d2, name, "8", String(tx), `${ty}.${ext}`), ext === "png" ? cv.toBuffer("image/png") : cv.toBuffer("image/jpeg"));
+        fs.writeFileSync(path.join(d2, name, "region.json"), JSON.stringify({ name, attribution: `${name} (fixture)`, bbox: [86, 27, 88, 29], minZoom: 5, maxZoom }));
+      };
+      write("a-wide", 8, "jpg", "#0000ff", false);
+      write("z-sharp", 12, "png", "#ff0000", true);
+      const fetcher = new TileFetcher({ ...imageryConfigFromEnv({}), provider: "none", regionsDir: d2 });
+      expect(fetcher.regions.regions.map((r) => r.name)).toEqual(["z-sharp", "a-wide"]);
+      const { loadImage } = await import("@napi-rs/canvas");
+      const img = await loadImage((await fetcher.getTile(8, tx, ty))!);
+      const cv = createCanvas(256, 256);
+      cv.getContext("2d").drawImage(img, 0, 0);
+      const px = (x: number) => [...cv.getContext("2d").getImageData(x, 128, 1, 1).data].slice(0, 3);
+      expect(px(40)).toEqual([255, 0, 0]);
+      expect(px(200)[2]).toBeGreaterThan(200);
+      expect([...fetcher.usedSources].sort()).toEqual(["a-wide (fixture)", "z-sharp (fixture)"]);
+    } finally {
+      fs.rmSync(d2, { recursive: true, force: true });
+    }
+  });
+
   it("turns regions and terrain off with 'none'", async () => {
     expect(imageryConfigFromEnv({ SATELLITE_REGIONS_DIR: "none" }).regionsDir).toBeNull();
     expect(terrainConfigFromEnv({ TERRAIN_TILE_URL: "none" }).tileUrl).toBeNull();

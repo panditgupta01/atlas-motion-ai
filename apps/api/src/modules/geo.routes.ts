@@ -19,7 +19,7 @@ export function geoRoutes(opts: { imagery: ImageryTileService; authed: RequestHa
       provider: d.provider,
       label: d.label,
       license: d.license,
-      attribution: [...imagery.fetcher.regions.regions.map((g) => g.attribution), ...(imagery.fetcher.providerEnabled ? [d.attribution] : []), "NASA Blue Marble"].filter(Boolean),
+      attribution: [...imagery.fetcher.regions.regions.map((g) => g.attribution), ...(imagery.fetcher.providerEnabled && imagery.cfg.previewProxy ? [d.attribution] : []), "NASA Blue Marble"].filter(Boolean),
       detail: imagery.fetcher.enabled,
       maxZoom: imagery.maxZoom,
       tiles: "/api/v1/geo/imagery/tiles/{z}/{x}/{y}",

@@ -139,8 +139,8 @@ def main():
     transform = from_bounds(left, top - rows * ts, left + cols * ts, top, W, H)
     mosaic = np.zeros((3, H, W), np.uint8)
     filled = np.zeros((H, W), bool)
-    # Read at about 20 m, which is still finer than zoom 12 (about 35 m per pixel at 27° N).
-    factor = 2 if z <= 12 else 1
+    # Read at about 20 m (40 m for zoom 11), still finer than the target zoom (about 35 m per pixel at zoom 12, 27° N).
+    factor = 4 if z <= 11 else 2 if z <= 12 else 1
     for _, _, prefix, _ in scenes:
         with rasterio.open(f"/vsicurl/{BUCKET}/{prefix}TCI.tif") as src:
             data = src.read(out_shape=(3, src.height // factor, src.width // factor), resampling=Resampling.average)

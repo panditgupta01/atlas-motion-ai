@@ -27,7 +27,7 @@ async function main() {
     queue,
     planners: new PlannerRegistry({ anthropicApiKey: config.ANTHROPIC_API_KEY, anthropicModel: config.ANTHROPIC_MODEL, defaultProvider: config.PLANNER_DEFAULT }),
     tts: new TtsRegistry([new EspeakTtsProvider()]),
-    imagery: new ImageryTileService(imageryConfigFromEnv(), terrainConfigFromEnv()),
+    imagery: new ImageryTileService(imageryConfigFromEnv(), terrainConfigFromEnv(), true),
     usage: new UsageService({ rendersPerDay: config.USAGE_RENDERS_PER_DAY, plansPerHour: config.USAGE_PLANS_PER_HOUR }),
   });
   const server = app.listen(config.PORT, () => logger.info({ port: config.PORT }, "API listening"));

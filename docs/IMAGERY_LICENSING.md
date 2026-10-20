@@ -41,6 +41,26 @@ Drawing any Google imagery into exported user videos would need a written agreem
   | Natural Earth | Public domain |
   | Optionally, a keyed provider whose plan covers video | Set by that provider |
 
+## Licensed alternative: MapTiler Satellite
+
+Checked on 2026-10-20 ([MapTiler Cloud terms](https://www.maptiler.com/terms/cloud/), [video licence](https://www.maptiler.com/cloud/geolayers)).
+
+- **Video is allowed only under a MapTiler video licence.**
+  - The Flex plan ($30 a month) includes a video licence for individual creators whose internet channel has up to 100,000 subscribers.
+  - TV, film and commercial streaming need a custom licence.
+  - So does a service making videos for third parties, because the standard terms forbid deploying the service "for the benefit of third parties".
+- **Their Cloud terms forbid server-side caching and proxying.**
+  - "It is prohibited to store, save, and/or redistribute any map content from a server-side cache or temporary storage."
+  - "Individual end-users must generate direct requests directly to MapTiler infrastructure."
+- **Attribution must stay on screen** and name MapTiler and each imagery source.
+
+How the app follows this (`SATELLITE_PROVIDER=maptiler-satellite`):
+- It stays off until `SATELLITE_TILE_KEY` and `SATELLITE_VIDEO_LICENSE` (`flex` or `custom`) are both set. The operator states which licence they hold; the app cannot check it.
+- Tiles are kept in memory for one render only, never written to disk.
+- The editor preview never proxies them: it shows the prepared regions and Blue Marble instead.
+- Frames credit the attribution from MapTiler's TileJSON, falling back to a generic MapTiler and Maxar credit.
+- Not verified against MapTiler itself: this build container cannot reach `api.maptiler.com`. The code path is tested against a local fixture server.
+
 ## Provider-neutral architecture
 
 | Concern | Where | Swapping it |

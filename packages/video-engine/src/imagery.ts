@@ -16,7 +16,7 @@ import { findRepoRoot } from "@atlas/geo";
  *    attribution only names what was actually drawn.
  */
 
-export type ImageryProviderId = "eox-s2cloudless" | "custom" | "none";
+export type ImageryProviderId = "eox-s2cloudless" | "maptiler-satellite" | "custom" | "none";
 
 export interface ImageryConfig {
   provider: ImageryProviderId;
@@ -31,13 +31,36 @@ export interface ImageryConfig {
   fetchTimeoutMs: number;
   /** Folder of prepared imagery regions (XYZ tiles plus region.json), used before the network provider. */
   regionsDir: string | null;
+  /** Keep fetched provider tiles on disk between renders. Off where the provider's terms forbid server-side caching. */
+  diskCache: boolean;
+  /** Serve provider tiles to the editor preview through the API. Off where the terms forbid proxying. */
+  previewProxy: boolean;
+  /** TileJSON whose attribution field lists the imagery sources (used instead of tileAttribution when reachable). */
+  tileJsonUrl?: string | null;
+  /** Which video licence the operator holds for this provider (SATELLITE_VIDEO_LICENSE). */
+  videoLicense?: string | null;
   /** Why the configured provider was refused (for example a Google provider), shown by check-env and the render log. */
   blocked?: string | null;
 }
 
 export const BASE_ATTRIBUTION = "Imagery: NASA Blue Marble";
 
-const PRESETS: Record<Exclude<ImageryProviderId, "custom" | "none">, { url: string; attribution: string; maxZoom: number; label: string; license: string }> = {
+interface Preset {
+  url: string;
+  attribution: string;
+  maxZoom: number;
+  label: string;
+  license: string;
+  tileJsonUrl?: string;
+  /** Provider terms forbid keeping tiles in a server-side cache. */
+  noDiskCache?: boolean;
+  /** Provider terms require end users to request tiles directly, so the API must not proxy them. */
+  noProxy?: boolean;
+  /** Provider terms allow video only under a separate video licence, named in SATELLITE_VIDEO_LICENSE. */
+  needsVideoLicense?: boolean;
+}
+
+const PRESETS: Record<Exclude<ImageryProviderId, "custom" | "none">, Preset> = {
   // The 2016 mosaic is the CC BY 4.0 release; later years are CC BY-NC-SA, which rules out commercial video.
   "eox-s2cloudless": {
     url: "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/g/{z}/{y}/{x}.jpg",
@@ -46,7 +69,24 @@ const PRESETS: Record<Exclude<ImageryProviderId, "custom" | "none">, { url: stri
     label: "Sentinel-2 cloudless 2016 (EOX)",
     license: "CC BY 4.0",
   },
+  // MapTiler Satellite needs a key and a MapTiler video licence: the Flex plan covers channels up to
+  // 100,000 subscribers; TV, broadcast and videos made for other people need a custom licence. Their
+  // Cloud terms forbid server-side caching and proxying, so tiles stay in memory for one render and
+  // the editor preview does not show them. See docs/IMAGERY_LICENSING.md.
+  "maptiler-satellite": {
+    url: "https://api.maptiler.com/tiles/satellite-v4/{z}/{x}/{y}?key={key}",
+    tileJsonUrl: "https://api.maptiler.com/tiles/satellite-v4/tiles.json?key={key}",
+    attribution: "Imagery: © MapTiler, © Maxar and other providers listed at maptiler.com/copyright",
+    maxZoom: 16,
+    label: "MapTiler Satellite",
+    license: "MapTiler video licence (Flex or custom)",
+    noDiskCache: true,
+    noProxy: true,
+    needsVideoLicense: true,
+  },
 };
+
+const VIDEO_LICENSES = ["flex", "custom"] as const;
 
 /**
  * Google imagery cannot be drawn into exported videos: the Map Tiles API allows only
@@ -74,14 +114,18 @@ export function imageryConfigFromEnv(env: NodeJS.ProcessEnv = process.env): Imag
   const raw = (env.SATELLITE_PROVIDER ?? "eox-s2cloudless").trim() as ImageryProviderId;
   // A Google provider name is refused outright rather than silently swapped for another source.
   const googleRequested = /^google/i.test(raw);
-  const provider: ImageryProviderId = googleRequested ? "none" : raw === "custom" || raw === "none" || raw === "eox-s2cloudless" ? raw : "eox-s2cloudless";
-  const preset = provider === "eox-s2cloudless" ? PRESETS[provider] : null;
+  const provider: ImageryProviderId = googleRequested ? "none" : raw === "custom" || raw === "none" || raw === "eox-s2cloudless" || raw === "maptiler-satellite" ? raw : "eox-s2cloudless";
+  const preset = provider === "custom" || provider === "none" ? null : PRESETS[provider];
   const maxZoom = Number(env.SATELLITE_MAX_ZOOM ?? preset?.maxZoom ?? 12);
   return {
     provider,
     tileUrl: provider === "custom" ? env.SATELLITE_TILE_URL?.trim() || null : preset?.url ?? null,
     tileKey: env.SATELLITE_TILE_KEY?.trim() || null,
-    tileAttribution: provider === "custom" ? env.SATELLITE_ATTRIBUTION?.trim() || "" : preset?.attribution ?? "",
+    tileAttribution: provider === "custom" ? env.SATELLITE_ATTRIBUTION?.trim() || "" : env.SATELLITE_ATTRIBUTION?.trim() || preset?.attribution || "",
+    diskCache: !preset?.noDiskCache,
+    previewProxy: !preset?.noProxy,
+    tileJsonUrl: preset?.tileJsonUrl ?? null,
+    videoLicense: env.SATELLITE_VIDEO_LICENSE?.trim().toLowerCase() || null,
     maxZoom: Number.isFinite(maxZoom) ? Math.max(1, Math.min(18, Math.round(maxZoom))) : 12,
     cacheDir: path.resolve(env.SATELLITE_CACHE_DIR ?? path.join(root, "storage", "cache", "tiles")),
     baseImagePath: path.resolve(env.ATLAS_BASE_IMAGERY ?? path.join(root, "assets", "imagery", "blue-marble-4096.jpg")),
@@ -124,6 +168,8 @@ export function terrainFetcher(t: TerrainConfig): TileFetcher {
     baseImagePath: "",
     fetchTimeoutMs: 15_000,
     regionsDir: null,
+    diskCache: true,
+    previewProxy: true,
   });
 }
 
@@ -156,6 +202,8 @@ export class RegionTileStore {
         const r = JSON.parse(fs.readFileSync(meta, "utf8")) as Omit<ImageryRegion, "dir">;
         if (!r.attribution || !Array.isArray(r.bbox)) continue;
         this.regions.push({ ...r, name: r.name ?? name, dir: path.join(dir, name) });
+        // Sharper regions first, so a detailed region sits on top of a wider, coarser one.
+        this.regions.sort((a, b) => b.maxZoom - a.maxZoom || a.name.localeCompare(b.name));
       } catch {
         /* unreadable region.json: skip the region */
       }
@@ -163,21 +211,35 @@ export class RegionTileStore {
   }
 
   getTile(z: number, x: number, y: number): { body: Buffer; region: ImageryRegion } | null {
+    return this.getTiles(z, x, y, 1)[0] ?? null;
+  }
+
+  /**
+   * Region tiles for this position, top first. Stops at the first opaque (JPEG) tile, because the
+   * baker writes JPEG only for tiles with no transparent pixels.
+   */
+  getTiles(z: number, x: number, y: number, limit = Infinity): { body: Buffer; region: ImageryRegion }[] {
+    const out: { body: Buffer; region: ImageryRegion }[] = [];
     for (const r of this.regions) {
+      if (out.length >= limit) break;
       if (z < r.minZoom || z > r.maxZoom) continue;
       const [x0, y1] = lonLatToTile(r.bbox[0], r.bbox[1], z);
       const [x1, y0] = lonLatToTile(r.bbox[2], r.bbox[3], z);
       if (x < Math.floor(x0) || x > Math.floor(x1) || y < Math.floor(y0) || y > Math.floor(y1)) continue;
+      let opaque = false;
       for (const ext of [".jpg", ".png"]) {
         const f = path.join(r.dir, String(z), String(x), `${y}${ext}`);
         try {
-          return { body: fs.readFileSync(f), region: r };
+          out.push({ body: fs.readFileSync(f), region: r });
+          opaque = ext === ".jpg";
+          break;
         } catch {
           /* not in this region */
         }
       }
+      if (opaque) break;
     }
-    return null;
+    return out;
   }
 }
 
@@ -202,9 +264,13 @@ export function describeImagery(cfg: ImageryConfig): ImageryStatus {
     if (isGoogleTileUrl(cfg.tileUrl)) issues.push(GOOGLE_EXPORT_BLOCKED);
   }
   if (cfg.blocked) issues.push(cfg.blocked);
+  const presetOf = cfg.provider === "custom" || cfg.provider === "none" ? null : PRESETS[cfg.provider];
+  if (presetOf && presetOf.url.includes("{key}") && !cfg.tileKey) issues.push(`SATELLITE_PROVIDER=${cfg.provider} needs SATELLITE_TILE_KEY.`);
+  if (presetOf?.needsVideoLicense && !VIDEO_LICENSES.includes(cfg.videoLicense as (typeof VIDEO_LICENSES)[number]))
+    issues.push(`${presetOf.label} may be used in videos only under its video licence. Set SATELLITE_VIDEO_LICENSE to "flex" (own channel, up to 100,000 subscribers) or "custom" (a licence agreed with MapTiler) once you hold one.`);
   const baseImage = fs.existsSync(cfg.baseImagePath);
   if (!baseImage) issues.push(`Base imagery missing at ${cfg.baseImagePath}. Run scripts/fetch-assets.sh.`);
-  const preset = cfg.provider === "eox-s2cloudless" ? PRESETS[cfg.provider] : null;
+  const preset = cfg.provider === "custom" || cfg.provider === "none" ? null : PRESETS[cfg.provider];
   return {
     provider: cfg.provider,
     label: preset?.label ?? (cfg.provider === "custom" ? "Custom tile provider" : "NASA Blue Marble only"),
@@ -316,6 +382,14 @@ export function lonLatToTile(lon: number, lat: number, z: number): [number, numb
  * fetched resolves to null. After repeated network failures the provider is
  * skipped for a while so a render does not wait on thousands of timeouts.
  */
+/** Draws overlapping region tiles bottom-up (the list is top first) into one PNG. */
+async function stackTiles(top: Buffer[]): Promise<Buffer> {
+  const canvas = createCanvas(256, 256);
+  const ctx = canvas.getContext("2d");
+  for (const body of [...top].reverse()) ctx.drawImage(await loadImage(body), 0, 0, 256, 256);
+  return canvas.encode("png");
+}
+
 export class TileFetcher {
   private failures = 0;
   private skipUntil = 0;
@@ -327,8 +401,37 @@ export class TileFetcher {
   /** Credit lines for every tile handed out since the last reset (regions and provider). */
   readonly usedSources = new Set<string>();
 
+  private attributionFromTileJson: string | null = null;
+  private tileJson: Promise<void> | null = null;
+
   constructor(private readonly cfg: ImageryConfig, private readonly concurrency = 6) {
     this.regions = new RegionTileStore(cfg.regionsDir);
+  }
+
+  /** The provider's credit line: its TileJSON attribution when it was fetched, else the configured text. */
+  get attribution(): string {
+    return this.attributionFromTileJson ?? this.cfg.tileAttribution;
+  }
+
+  /** Reads the provider's TileJSON once, for an attribution that names every imagery source it serves. */
+  loadTileJsonAttribution(): Promise<void> {
+    if (!this.cfg.tileJsonUrl) return Promise.resolve();
+    this.tileJson ??= (async () => {
+      try {
+        const res = await fetch(this.cfg.tileJsonUrl!.replace("{key}", encodeURIComponent(this.cfg.tileKey ?? "")), { signal: AbortSignal.timeout(this.cfg.fetchTimeoutMs) });
+        if (!res.ok) return;
+        const text = String(((await res.json()) as { attribution?: unknown }).attribution ?? "")
+          .replace(/<[^>]*>/g, " ")
+          .replace(/&copy;/g, "©")
+          .replace(/&amp;/g, "&")
+          .replace(/\s+/g, " ")
+          .trim();
+        if (text) this.attributionFromTileJson = `Imagery: ${text}`.slice(0, 300);
+      } catch {
+        /* keep the configured attribution */
+      }
+    })();
+    return this.tileJson;
   }
 
   /** True when the network provider is configured. */
@@ -361,14 +464,21 @@ export class TileFetcher {
     }
   }
 
+  /** Prepared-region imagery only, never the network provider. */
+  async regionTile(z: number, x: number, y: number): Promise<Buffer | null> {
+    const n = 2 ** z;
+    const local = this.regions.getTiles(z, ((x % n) + n) % n, y);
+    return local.length === 0 ? null : local.length === 1 ? local[0]!.body : stackTiles(local.map((l) => l.body));
+  }
+
   getTile(z: number, x: number, y: number): Promise<Buffer | null> {
     if (!this.enabled || z < 0 || z > this.cfg.maxZoom || y < 0 || y >= 2 ** z) return Promise.resolve(null);
     const n = 2 ** z;
     const wx = ((x % n) + n) % n;
-    const local = this.regions.getTile(z, wx, y);
-    if (local) {
-      this.usedSources.add(local.region.attribution);
-      return Promise.resolve(local.body);
+    const local = this.regions.getTiles(z, wx, y);
+    if (local.length) {
+      for (const l of local) this.usedSources.add(l.region.attribution);
+      return local.length === 1 ? Promise.resolve(local[0]!.body) : stackTiles(local.map((l) => l.body));
     }
     if (!this.providerEnabled) return Promise.resolve(null);
     const file = this.cachePath(z, wx, y);
@@ -376,14 +486,17 @@ export class TileFetcher {
     const existing = this.inflight.get(key);
     if (existing) return existing;
     const p = (async () => {
-      try {
-        const cached = await fs.promises.readFile(file);
-        this.usedSources.add(this.cfg.tileAttribution);
-        return cached;
-      } catch {
-        /* not cached */
+      if (this.cfg.diskCache) {
+        try {
+          const cached = await fs.promises.readFile(file);
+          this.usedSources.add(this.attribution);
+          return cached;
+        } catch {
+          /* not cached */
+        }
       }
       if (!this.available) return null;
+      await this.loadTileJsonAttribution();
       return this.slot(async () => {
         if (!this.available) return null;
         const url = this.cfg.tileUrl!.replace("{z}", String(z)).replace("{x}", String(wx)).replace("{y}", String(y)).replace("{key}", encodeURIComponent(this.cfg.tileKey ?? ""));
@@ -394,11 +507,13 @@ export class TileFetcher {
           const type = res.headers.get("content-type") ?? "";
           if (!type.startsWith("image/")) throw new Error(`unexpected content type ${type || "(none)"}`);
           const buf = Buffer.from(await res.arrayBuffer());
-          await fs.promises.mkdir(path.dirname(file), { recursive: true });
-          await fs.promises.writeFile(`${file}.tmp`, buf);
-          await fs.promises.rename(`${file}.tmp`, file);
+          if (this.cfg.diskCache) {
+            await fs.promises.mkdir(path.dirname(file), { recursive: true });
+            await fs.promises.writeFile(`${file}.tmp`, buf);
+            await fs.promises.rename(`${file}.tmp`, file);
+          }
           this.failures = 0;
-          this.usedSources.add(this.cfg.tileAttribution);
+          this.usedSources.add(this.attribution);
           return buf;
         } catch (err) {
           this.lastError = `${(err as Error).message}`.slice(0, 200);
@@ -515,6 +630,8 @@ export class ImageryTileService {
   constructor(
     readonly cfg: ImageryConfig,
     readonly terrainCfg: TerrainConfig | null = null,
+    /** True for the editor preview served by the API; false for the renderer's own use. */
+    readonly forPreview = false,
   ) {
     this.fetcher = new TileFetcher(cfg);
     this.terrain = terrainCfg?.tileUrl ? terrainFetcher(terrainCfg) : null;
@@ -542,7 +659,8 @@ export class ImageryTileService {
     const n = 2 ** z;
     if (!Number.isInteger(z) || !Number.isInteger(x) || !Number.isInteger(y) || z < 0 || z > 18 || x < 0 || x >= n || y < 0 || y >= n) return null;
     if (layer !== "base" && z >= 4 && this.fetcher.enabled) {
-      const buf = await this.fetcher.getTile(z, x, y);
+      // Providers that forbid proxying are never fetched for the preview; it shows regions and the base layer.
+      const buf = this.forPreview && !this.cfg.previewProxy ? await this.fetcher.regionTile(z, x, y) : await this.fetcher.getTile(z, x, y);
       if (buf) {
         const type = sniffImageType(buf);
         if (layer === "detail" || type !== "image/png") return { body: buf, contentType: type, source: "detail" };

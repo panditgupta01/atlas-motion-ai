@@ -161,6 +161,7 @@ All variables are listed with placeholders in [`.env.example`](.env.example). Th
 | `WEB_DIST_DIR` | Serve the built studio from the API. |
 | `SATELLITE_PROVIDER` | `eox-s2cloudless` (default, no key), `custom`, or `none` (Blue Marble only). See [Satellite imagery](#satellite-imagery). |
 | `SATELLITE_TILE_URL`, `SATELLITE_TILE_KEY`, `SATELLITE_ATTRIBUTION`, `SATELLITE_MAX_ZOOM` | A custom XYZ provider. The key stays on the server. |
+| `SATELLITE_PROVIDER=maptiler-satellite` with `SATELLITE_TILE_KEY` and `SATELLITE_VIDEO_LICENSE` | MapTiler Satellite for renders, once you hold a MapTiler video licence (`flex`: your own channel up to 100,000 subscribers; `custom`: agreed with MapTiler). Never cached on disk or shown in the preview, per MapTiler's terms. |
 | `SATELLITE_REGIONS_DIR` | Folder of prepared imagery regions (default `assets/imagery/regions`, `none` to ignore). |
 | `TERRAIN_TILE_URL`, `TERRAIN_ATTRIBUTION`, `TERRAIN_MAX_ZOOM` | Elevation tiles for the 3D view (Terrarium encoding). `none` draws it without relief. |
 | `GOOGLE_MAPS_BROWSER_KEY`, `GOOGLE_MAPS_MAP_ID` | Live Google Maps satellite preview in the editor only. A browser key: restrict it by HTTP referrer and to the Maps JavaScript API. |

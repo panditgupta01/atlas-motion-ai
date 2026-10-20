@@ -96,6 +96,17 @@ describe("imagery configuration", () => {
     }
   });
 
+  it("needs a key and a stated video licence before MapTiler Satellite is used", () => {
+    const none = describeImagery(imageryConfigFromEnv({ SATELLITE_PROVIDER: "maptiler-satellite" })).issues.join(" ");
+    expect(none).toContain("SATELLITE_TILE_KEY");
+    expect(none).toContain("SATELLITE_VIDEO_LICENSE");
+    const bad = describeImagery(imageryConfigFromEnv({ SATELLITE_PROVIDER: "maptiler-satellite", SATELLITE_TILE_KEY: "k", SATELLITE_VIDEO_LICENSE: "yes" })).issues;
+    expect(bad.join(" ")).toContain("SATELLITE_VIDEO_LICENSE");
+    const ok = imageryConfigFromEnv({ SATELLITE_PROVIDER: "maptiler-satellite", SATELLITE_TILE_KEY: "k", SATELLITE_VIDEO_LICENSE: "custom" });
+    expect(describeImagery(ok).issues.filter((i) => !i.startsWith("Base imagery"))).toEqual([]);
+    expect(ok.tileUrl).toContain("api.maptiler.com/tiles/satellite-v4/");
+  });
+
   it("puts the basemap and imagery source into clip cache keys", () => {
     const scene = sceneFixture();
     const sat = sceneCacheKey(scene, undefined, "16:9", "draft", 30, { basemap: "satellite", imagery: "eox" });
@@ -155,6 +166,10 @@ describe.skipIf(!hasBase)("satellite rendering with a tile provider (local fixtu
         res.writeHead(500).end("down");
         return;
       }
+      if (req.url?.includes("tiles.json")) {
+        res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ attribution: '<a href="x">&copy; Fixture Imagery</a> <a>&copy; Second Source</a>' }));
+        return;
+      }
       res.writeHead(200, { "Content-Type": "image/jpeg" }).end(redTile);
     });
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -188,6 +203,23 @@ describe.skipIf(!hasBase)("satellite rendering with a tile provider (local fixtu
     expect(report.attribution).not.toContain("Test tiles (fixture)");
     expect(report.attribution).toContain("Imagery: NASA Blue Marble");
     expect(report.note).toContain("HTTP 500");
+  });
+
+  it("keeps MapTiler-style providers out of the disk cache and the preview proxy, and credits their TileJSON sources", async () => {
+    const mt = { ...cfg("mt"), ...imageryConfigFromEnv({ SATELLITE_PROVIDER: "maptiler-satellite", SATELLITE_TILE_KEY: "k", SATELLITE_VIDEO_LICENSE: "flex" }) };
+    const live = { ...mt, tileUrl: `${base}/mt/{z}/{x}/{y}?key={key}`, tileJsonUrl: `${base}/mt/tiles.json?key={key}`, cacheDir: path.join(tmp, "mt-cache"), regionsDir: null };
+    expect(live.diskCache).toBe(false);
+    expect(live.previewProxy).toBe(false);
+    const fetcher = new ImageryTileService(live).fetcher;
+    expect(fetcher.providerEnabled).toBe(true);
+    expect(await fetcher.getTile(6, 47, 26)).not.toBeNull();
+    expect(fs.existsSync(path.join(tmp, "mt-cache"))).toBe(false);
+    expect([...fetcher.usedSources]).toEqual(["Imagery: © Fixture Imagery © Second Source"]);
+
+    const before = requests;
+    const preview = new ImageryTileService(live, null, true);
+    expect((await preview.getTile(6, 47, 26))?.source).toBe("base");
+    expect(requests).toBe(before);
   });
 
   it("serves preview tiles generated from the base image when no provider is configured", async () => {
