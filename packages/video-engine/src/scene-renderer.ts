@@ -84,7 +84,7 @@ export interface SceneRenderer {
 }
 
 /** Bump when frame output changes, so cached clips are re-rendered. */
-export const MAP_RENDERER_VERSION = "map2d-3";
+export const MAP_RENDERER_VERSION = "map2d-4";
 
 /** Vertical exaggeration of the 3D terrain; a little relief helps it read at documentary altitudes. */
 export const TERRAIN_EXAGGERATION = 1.3;

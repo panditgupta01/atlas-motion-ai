@@ -57,6 +57,11 @@ const envSchema = z.object({
   PLANNER_DEFAULT: z.enum(["auto", "anthropic", "gazetteer"]).default("auto"),
   TTS_DEFAULT: z.string().default("espeak-ng"),
 
+  // Live Google Maps satellite preview in the editor only (Maps JavaScript API). A browser key is
+  // visible to the browser by design: restrict it to your site's referrers and to the Maps JavaScript API.
+  GOOGLE_MAPS_BROWSER_KEY: z.string().regex(/^[A-Za-z0-9_-]{20,80}$/, "must look like a Google API key").optional(),
+  GOOGLE_MAPS_MAP_ID: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).optional(),
+
   RENDER_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(1),
   RENDER_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(3),
   RENDER_JOB_TIMEOUT_MINUTES: z.coerce.number().min(1).max(240).default(60),

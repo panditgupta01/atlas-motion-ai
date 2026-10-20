@@ -141,7 +141,7 @@ New projects use the 3D view. The worker runs MapLibre GL in headless Chromium a
 - **Camera.** Pitch rises from straight down at globe scale to about 65° at close range, and the heading drifts a few degrees (an orbit turns 50°). A scene can set `camera.pitch` and `camera.bearing` to override both.
 - **Prepared regions.** `python3 scripts/imagery/bake_sentinel2.py --name koshi-sentinel2 --bbox 85.3 26.3 88.4 28.6 --max-zoom 12` picks the clearest post-monsoon scenes, mosaics them, fades the edge into the base imagery over 30 km and writes tiles to `assets/imagery/regions/` (not committed; about 150 MB for this box). Regions are used before any network provider, in the flat views too.
 - **Without Chromium** the scene falls back to the flat satellite view and the render log says so. The Docker image installs Debian's `chromium` and sets `CHROMIUM_PATH`.
-- **Why not Google's 3D tiles or Earth Studio.** Google's Photorealistic 3D Tiles allow only short promotional videos about your app and forbid caching; Google Earth Studio has no licence for commercial use of its imagery. Neither fits a product that exports videos.
+- **Google imagery.** The editor can show a live Google Maps satellite preview (`GOOGLE_MAPS_BROWSER_KEY`), but exported videos never use Google imagery: the Map Tiles API (2D and Photorealistic 3D) allows only short promotional videos about your own app, the Maps Platform terms forbid exporting or caching its content, and Google Earth Studio has no commercial licence. Renders refuse Google tile sources. The product-by-product evaluation is in [docs/IMAGERY_LICENSING.md](docs/IMAGERY_LICENSING.md).
 
 ## Environment variables
 
@@ -163,6 +163,7 @@ All variables are listed with placeholders in [`.env.example`](.env.example). Th
 | `SATELLITE_TILE_URL`, `SATELLITE_TILE_KEY`, `SATELLITE_ATTRIBUTION`, `SATELLITE_MAX_ZOOM` | A custom XYZ provider. The key stays on the server. |
 | `SATELLITE_REGIONS_DIR` | Folder of prepared imagery regions (default `assets/imagery/regions`, `none` to ignore). |
 | `TERRAIN_TILE_URL`, `TERRAIN_ATTRIBUTION`, `TERRAIN_MAX_ZOOM` | Elevation tiles for the 3D view (Terrarium encoding). `none` draws it without relief. |
+| `GOOGLE_MAPS_BROWSER_KEY`, `GOOGLE_MAPS_MAP_ID` | Live Google Maps satellite preview in the editor only. A browser key: restrict it by HTTP referrer and to the Maps JavaScript API. |
 | `CHROMIUM_PATH` | Chromium for the 3D view. Defaults to Playwright's Chromium when installed. |
 | `FFMPEG_PATH`, `FFPROBE_PATH`, `ESPEAK_PATH`, `ATLAS_GEO_DATA_DIR`, `ATLAS_FONTS_DIR`, `ATLAS_ROOT` | Optional path overrides. |
 

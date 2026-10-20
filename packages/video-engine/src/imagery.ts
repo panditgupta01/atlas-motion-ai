@@ -31,6 +31,8 @@ export interface ImageryConfig {
   fetchTimeoutMs: number;
   /** Folder of prepared imagery regions (XYZ tiles plus region.json), used before the network provider. */
   regionsDir: string | null;
+  /** Why the configured provider was refused (for example a Google provider), shown by check-env and the render log. */
+  blocked?: string | null;
 }
 
 export const BASE_ATTRIBUTION = "Imagery: NASA Blue Marble";
@@ -46,10 +48,33 @@ const PRESETS: Record<Exclude<ImageryProviderId, "custom" | "none">, { url: stri
   },
 };
 
+/**
+ * Google imagery cannot be drawn into exported videos: the Map Tiles API allows only
+ * promotional videos of 30 s or less about your own app and forbids caching, and the
+ * Google Maps Platform terms forbid exporting Google Maps Content or creating content from it.
+ * See docs/IMAGERY_LICENSING.md. The editor can still show a live Google Maps preview.
+ */
+export const GOOGLE_EXPORT_BLOCKED =
+  "Google imagery (Maps, Map Tiles API 2D or Photorealistic 3D Tiles, Earth) is not licensed for exported user videos; see docs/IMAGERY_LICENSING.md. Renders use the open imagery sources instead.";
+
+/** Tile hosts that serve Google imagery. A custom provider pointing at one of them is refused. */
+const GOOGLE_TILE_HOST = /(^|\.)(google\.[a-z.]+|googleapis\.com|gstatic\.com|ggpht\.com)$/i;
+
+function isGoogleTileUrl(url: string | null): boolean {
+  if (!url) return false;
+  try {
+    return GOOGLE_TILE_HOST.test(new URL(url.replace(/\{[a-z]+\}/gi, "0")).hostname);
+  } catch {
+    return false;
+  }
+}
+
 export function imageryConfigFromEnv(env: NodeJS.ProcessEnv = process.env): ImageryConfig {
   const root = findRepoRoot();
   const raw = (env.SATELLITE_PROVIDER ?? "eox-s2cloudless").trim() as ImageryProviderId;
-  const provider: ImageryProviderId = raw === "custom" || raw === "none" || raw === "eox-s2cloudless" ? raw : "eox-s2cloudless";
+  // A Google provider name is refused outright rather than silently swapped for another source.
+  const googleRequested = /^google/i.test(raw);
+  const provider: ImageryProviderId = googleRequested ? "none" : raw === "custom" || raw === "none" || raw === "eox-s2cloudless" ? raw : "eox-s2cloudless";
   const preset = provider === "eox-s2cloudless" ? PRESETS[provider] : null;
   const maxZoom = Number(env.SATELLITE_MAX_ZOOM ?? preset?.maxZoom ?? 12);
   return {
@@ -61,6 +86,7 @@ export function imageryConfigFromEnv(env: NodeJS.ProcessEnv = process.env): Imag
     cacheDir: path.resolve(env.SATELLITE_CACHE_DIR ?? path.join(root, "storage", "cache", "tiles")),
     baseImagePath: path.resolve(env.ATLAS_BASE_IMAGERY ?? path.join(root, "assets", "imagery", "blue-marble-4096.jpg")),
     fetchTimeoutMs: Number(env.SATELLITE_FETCH_TIMEOUT_MS ?? 10_000),
+    blocked: googleRequested ? GOOGLE_EXPORT_BLOCKED : null,
     regionsDir: env.SATELLITE_REGIONS_DIR === "none" ? null : path.resolve(env.SATELLITE_REGIONS_DIR ?? path.join(root, "assets", "imagery", "regions")),
   };
 }
@@ -173,7 +199,9 @@ export function describeImagery(cfg: ImageryConfig): ImageryStatus {
     else if (!/^(https:\/\/|http:\/\/(127\.0\.0\.1|localhost)[:/])/.test(cfg.tileUrl) || !cfg.tileUrl.includes("{z}") || !cfg.tileUrl.includes("{x}") || !cfg.tileUrl.includes("{y}")) issues.push("SATELLITE_TILE_URL must be an https URL (or http on localhost) containing {z}, {x} and {y}.");
     if (cfg.tileUrl?.includes("{key}") && !cfg.tileKey) issues.push("SATELLITE_TILE_URL uses {key} but SATELLITE_TILE_KEY is not set.");
     if (!cfg.tileAttribution) issues.push("SATELLITE_ATTRIBUTION is required for a custom provider; it is drawn on every frame.");
+    if (isGoogleTileUrl(cfg.tileUrl)) issues.push(GOOGLE_EXPORT_BLOCKED);
   }
+  if (cfg.blocked) issues.push(cfg.blocked);
   const baseImage = fs.existsSync(cfg.baseImagePath);
   if (!baseImage) issues.push(`Base imagery missing at ${cfg.baseImagePath}. Run scripts/fetch-assets.sh.`);
   const preset = cfg.provider === "eox-s2cloudless" ? PRESETS[cfg.provider] : null;

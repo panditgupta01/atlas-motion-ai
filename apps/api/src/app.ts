@@ -18,6 +18,17 @@ import { renderRoutes } from "./modules/renders.routes.js";
 import { storyboardRoutes } from "./modules/storyboard.routes.js";
 import { systemRoutes } from "./modules/system.routes.js";
 
+/** Google's documented Content Security Policy needs for the Maps JavaScript API. */
+const GOOGLE_MAPS_CSP = {
+  "script-src": ["'self'", "https://*.googleapis.com", "https://*.gstatic.com", "https://*.google.com", "https://*.ggpht.com", "https://*.googleusercontent.com", "blob:"],
+  "img-src": ["'self'", "data:", "blob:", "https://*.googleapis.com", "https://*.gstatic.com", "https://*.google.com", "https://*.googleusercontent.com"],
+  "connect-src": ["'self'", "https://*.googleapis.com", "https://*.google.com", "https://*.gstatic.com", "data:", "blob:"],
+  "font-src": ["'self'", "https://fonts.gstatic.com"],
+  "style-src": ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+  "worker-src": ["'self'", "blob:"],
+  "frame-src": ["https://*.google.com"],
+};
+
 export function createApp(deps: AppDeps): express.Express {
   const app = express();
   app.disable("x-powered-by");
@@ -34,7 +45,14 @@ export function createApp(deps: AppDeps): express.Express {
       autoLogging: { ignore: (req) => req.url === "/api/v1/health" },
     }),
   );
-  app.use(helmet({ crossOriginResourcePolicy: { policy: "same-site" } }));
+  // The Google Maps preview loads Google's script, styles, fonts and tiles, so its hosts are allowed only when a key is configured.
+  const google = deps.config.GOOGLE_MAPS_BROWSER_KEY ? GOOGLE_MAPS_CSP : null;
+  app.use(
+    helmet({
+      crossOriginResourcePolicy: { policy: "same-site" },
+      contentSecurityPolicy: google ? { directives: google } : undefined,
+    }),
+  );
   app.use(
     cors({
       origin: (origin, cb) => cb(null, !origin || deps.config.corsOrigins.includes(origin)),
@@ -62,7 +80,12 @@ export function createApp(deps: AppDeps): express.Express {
   const authed = requireAuth(deps.config);
   v1.use(systemRoutes(deps));
   v1.use("/auth", authRoutes(deps));
-  v1.use("/geo", geoRoutes({ imagery: deps.imagery, authed, test: deps.config.NODE_ENV === "test" }));
+  v1.use("/geo", geoRoutes({
+      imagery: deps.imagery,
+      authed,
+      test: deps.config.NODE_ENV === "test",
+      googleMaps: deps.config.GOOGLE_MAPS_BROWSER_KEY ? { browserKey: deps.config.GOOGLE_MAPS_BROWSER_KEY, mapId: deps.config.GOOGLE_MAPS_MAP_ID ?? null } : null,
+    }));
   const renders = renderRoutes(deps);
   v1.use("/projects", authed, projectRoutes(deps));
   v1.use("/projects/:projectId", authed, storyboardRoutes(deps));

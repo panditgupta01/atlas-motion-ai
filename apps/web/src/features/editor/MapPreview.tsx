@@ -58,13 +58,13 @@ function baseStyle(basemap: Basemap, imageryMaxZoom: number, terrain: ImageryInf
   };
 }
 
-function revealLine(coords: [number, number][], t: number): [number, number][] {
+export function revealLine(coords: [number, number][], t: number): [number, number][] {
   if (t >= 1 || coords.length < 2) return coords;
   const n = Math.max(2, Math.ceil(coords.length * Math.max(0.02, t)));
   return coords.slice(0, n);
 }
 
-function overlayKey(overlays: Overlay[]) {
+export function overlayKey(overlays: Overlay[]) {
   const countries = overlays.flatMap((o) => (o.type === "highlight_country" ? [o.iso3] : [])).sort();
   const rivers = overlays.flatMap((o) => (o.type === "river" ? [o.datasetName] : [])).sort();
   return { countries, rivers };

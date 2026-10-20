@@ -24,18 +24,20 @@ function useSamples() {
 const STEPS = [
   { icon: ListChecks, title: "Describe the story", body: "Write a prompt in English or Hindi. The planner turns it into scenes: places, camera moves, overlays and narration." },
   { icon: Map, title: "Review every scene", body: "Edit coordinates, labels, timing and narration. Claims without a source are flagged and block the render until you resolve them." },
-  { icon: FileVideo, title: "Render real MP4s", body: "A background worker draws each frame from Natural Earth vector data and encodes 9:16 and 16:9 videos with FFmpeg." },
+  { icon: FileVideo, title: "Render real MP4s", body: "A background worker draws 3D satellite flyovers from openly licensed imagery and elevation, adds Natural Earth borders and rivers, and encodes 9:16 and 16:9 videos with FFmpeg." },
 ];
 
 const CAN = [
-  "Animated 2D globe and map views with zooms, pans and route reveals",
+  "3D terrain flyovers and satellite globe views with zooms, pans and route reveals",
+  "A live Google Maps satellite preview in the editor, when the server has a key",
   "Country highlights, rivers, lakes, markers, arrows, legends and title cards",
   "Hindi and English captions burned in or as an .srt file",
   "Synthetic narration with espeak-ng (robotic, but real and offline)",
   "Per-scene caching, retries and cancellation",
 ];
 const CANNOT = [
-  "3D terrain or satellite imagery (not implemented)",
+  "Google imagery in exported videos (Google's terms do not allow it; videos use Copernicus Sentinel-2 and NASA imagery)",
+  "Sharp close-ups outside prepared imagery regions",
   "Flood extents, basins or live data (no dataset bundled)",
   "Facts you have not sourced: the app will not invent them",
 ];

@@ -349,6 +349,11 @@ async function renderScenes(
         await state.updateScene(scene.id, format, { status: "done", framesDone: framesTotal, clipAssetId: asset._id, error: null }, completedFrames);
         clipKeys.set(`${format}|${scene.id}`, key);
         await state.log("info", `${scene.id} (${format}): rendered ${result.frames} frames in ${(result.elapsedMs / 1000).toFixed(1)}s.`);
+        const credits = result.imagery?.attribution.join("; ");
+        if (credits && !imageryNotes.has(credits)) {
+          imageryNotes.add(credits);
+          await state.log("info", `Imagery sources in this video (credited on screen): ${credits}`);
+        }
         if (result.imagery?.note && !imageryNotes.has(result.imagery.note)) {
           imageryNotes.add(result.imagery.note);
           await state.log("warn", `Imagery: ${result.imagery.note}`);

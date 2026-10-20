@@ -8,7 +8,7 @@ import { parse } from "../errors.js";
 const LAYERS = { countries: "countries50m", rivers: "rivers50m", lakes: "lakes50m", "countries-detail": "countries10m", "rivers-detail": "rivers10m" } as const;
 
 /** Geographic lookup for the editor: gazetteer search and the vector layers the map preview draws. */
-export function geoRoutes(opts: { imagery: ImageryTileService; authed: RequestHandler; test?: boolean }): Router {
+export function geoRoutes(opts: { imagery: ImageryTileService; authed: RequestHandler; test?: boolean; googleMaps?: { browserKey: string; mapId: string | null } | null }): Router {
   const r = Router();
   const { imagery } = opts;
 
@@ -23,6 +23,8 @@ export function geoRoutes(opts: { imagery: ImageryTileService; authed: RequestHa
       detail: imagery.fetcher.enabled,
       maxZoom: imagery.maxZoom,
       tiles: "/api/v1/geo/imagery/tiles/{z}/{x}/{y}",
+      // Preview only: Google imagery is never used in exported videos (docs/IMAGERY_LICENSING.md).
+      googlePreview: !!opts.googleMaps,
       terrain: imagery.terrain ? { tiles: "/api/v1/geo/terrain/{z}/{x}/{y}", encoding: "terrarium", maxZoom: imagery.terrainCfg!.maxZoom, attribution: imagery.terrainCfg!.attribution } : null,
     });
   });
@@ -43,6 +45,16 @@ export function geoRoutes(opts: { imagery: ImageryTileService; authed: RequestHa
     res.setHeader("Cache-Control", "private, max-age=86400");
     res.setHeader("X-Imagery-Source", tile.source);
     res.type(tile.contentType).send(tile.body);
+  });
+
+  /**
+   * The browser key for the live Google Maps satellite preview, signed-in only. A Maps JavaScript API
+   * key is visible to the browser by design; operators restrict it by referrer and API.
+   */
+  r.get("/google-maps", opts.authed, (_req, res) => {
+    if (!opts.googleMaps) return res.status(404).json({ error: { code: "not_configured", message: "The Google Maps preview is not configured (GOOGLE_MAPS_BROWSER_KEY)." } });
+    res.setHeader("Cache-Control", "private, no-store");
+    res.json(opts.googleMaps);
   });
 
   /** Elevation tiles for the 3D preview, signed-in only like the imagery tiles. */

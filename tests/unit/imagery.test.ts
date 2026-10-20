@@ -84,6 +84,18 @@ describe("imagery configuration", () => {
     expect(ok.issues.filter((i) => !i.startsWith("Base imagery"))).toEqual([]);
   });
 
+  it("refuses Google imagery for exported videos, by provider name or by tile host", () => {
+    const named = imageryConfigFromEnv({ SATELLITE_PROVIDER: "google-map-tiles" });
+    expect(named.provider).toBe("none");
+    expect(describeImagery(named).issues.join(" ")).toContain("not licensed for exported user videos");
+    const hosted = imageryConfigFromEnv({ SATELLITE_PROVIDER: "custom", SATELLITE_TILE_URL: "https://tile.googleapis.com/v1/2dtiles/{z}/{x}/{y}?key={key}", SATELLITE_TILE_KEY: "k", SATELLITE_ATTRIBUTION: "Google" });
+    expect(describeImagery(hosted).issues.join(" ")).toContain("not licensed for exported user videos");
+    expect(new ImageryTileService(hosted).fetcher.providerEnabled).toBe(false);
+    for (const url of ["https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}", "https://khms0.googleapis.com/kh?v=1&x={x}&y={y}&z={z}"]) {
+      expect(describeImagery(imageryConfigFromEnv({ SATELLITE_PROVIDER: "custom", SATELLITE_TILE_URL: url, SATELLITE_ATTRIBUTION: "x" })).issues.join(" ")).toContain("not licensed");
+    }
+  });
+
   it("puts the basemap and imagery source into clip cache keys", () => {
     const scene = sceneFixture();
     const sat = sceneCacheKey(scene, undefined, "16:9", "draft", 30, { basemap: "satellite", imagery: "eox" });

@@ -109,6 +109,7 @@ export const api = {
   overlayFeatures: (countries: string[], rivers: string[]) =>
     request<FeatureCollection>("GET", `/geo/overlay-features${qs({ countries: countries.join(",") || undefined, rivers: rivers.join("|") || undefined })}`),
   imagery: () => request<ImageryInfo>("GET", "/geo/imagery"),
+  googleMaps: () => request<{ browserKey: string; mapId: string | null }>("GET", "/geo/google-maps"),
   searchPlaces: (q: string, signal?: AbortSignal) => request<{ items: GazetteerHit[]; attribution: string }>("GET", `/geo/search${qs({ q, limit: 8 })}`, undefined, signal),
 };
 
@@ -126,6 +127,8 @@ export interface ImageryInfo {
   detail: boolean;
   maxZoom: number;
   tiles: string;
+  /** True when the server offers the live Google Maps satellite preview (preview only, never exported). */
+  googlePreview: boolean;
   /** Elevation tiles for the 3D view; null when the server has terrain off. */
   terrain: { tiles: string; encoding: "terrarium"; maxZoom: number; attribution: string } | null;
 }

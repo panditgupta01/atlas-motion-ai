@@ -7,10 +7,11 @@ import { durationToleranceSeconds, type AspectFormat } from "@atlas/shared";
 import { Button, EmptyState, Notice, PageSpinner, Segmented } from "../components/ui";
 import { ErrorNotice } from "../components/ErrorNotice";
 import { StatusBadge } from "../components/StatusBadge";
-import { keys, useProject, useStoryboard } from "../hooks/queries";
+import { keys, useImagery, useProject, useStoryboard } from "../hooks/queries";
 import { api, ApiError } from "../services/api";
 import { checkDraft, useEditor, useIsDirty } from "../stores/editor";
 import { MapPreview } from "../features/editor/MapPreview";
+import { GoogleMapPreview } from "../features/editor/GoogleMapPreview";
 import { SceneList } from "../features/editor/SceneList";
 import { SceneInspector } from "../features/editor/SceneInspector";
 import { ValidationPanel } from "../features/editor/ValidationPanel";
@@ -46,6 +47,16 @@ function usePlayback(durationSeconds: number, onEnd: () => void) {
   return { t, setT, playing, setPlaying };
 }
 
+const PREVIEW_SOURCE_KEY = "atlas.previewSource";
+
+function readPreviewSource(): "open" | "google" {
+  try {
+    return localStorage.getItem(PREVIEW_SOURCE_KEY) === "google" ? "google" : "open";
+  } catch {
+    return "open";
+  }
+}
+
 export function EditorPage() {
   const { projectId = "" } = useParams();
   const navigate = useNavigate();
@@ -56,6 +67,17 @@ export function EditorPage() {
   const { draft, selectedSceneId, baseVersion } = store;
   const dirty = useIsDirty();
   const [format, setFormat] = useState<AspectFormat>("16:9");
+  const imagery = useImagery();
+  const [previewChoice, setPreviewChoice] = useState<"open" | "google">(() => readPreviewSource());
+  const previewSource = imagery.data?.googlePreview ? previewChoice : "open";
+  const choosePreviewSource = (v: "open" | "google") => {
+    setPreviewChoice(v);
+    try {
+      localStorage.setItem(PREVIEW_SOURCE_KEY, v);
+    } catch {
+      /* storage blocked: the choice lasts for this page only */
+    }
+  };
   const [playAll, setPlayAll] = useState(false);
 
   // Load the server copy into the editor once per project (or when it changes underneath a clean editor).
@@ -254,6 +276,9 @@ export function EditorPage() {
             {draft.formats.length > 1 && (
               <Segmented label="Preview format" value={format} onChange={setFormat} options={draft.formats.map((f) => ({ value: f, label: f }))} />
             )}
+            {imagery.data?.googlePreview && (
+              <Segmented label="Preview imagery" value={previewSource} onChange={choosePreviewSource} options={[{ value: "open", label: "Video" }, { value: "google", label: "Google" }]} />
+            )}
             <Segmented label="Base map" value={draft.basemap} onChange={(basemap) => store.updateStoryboard({ basemap })} options={[{ value: "satellite3d", label: "3D" }, { value: "satellite", label: "Satellite" }, { value: "vector", label: "Map" }]} />
             <Button size="sm" variant="ghost" aria-label={playback.playing ? "Pause" : "Play"} icon={playback.playing ? <Pause className="size-4" /> : <Play className="size-4" />} onClick={() => {
               if (!playback.playing && playback.t >= 1) playback.setT(0);
@@ -268,9 +293,19 @@ export function EditorPage() {
             </label>
           </div>
           <div className="flex min-h-0 flex-1 items-center justify-center bg-[#090b0d] p-4">
-            <MapPreview scenes={draft.scenes} sceneIndex={sceneIndex} format={format} basemap={draft.basemap} t={playback.t} />
+            {previewSource === "google" ? (
+              <GoogleMapPreview scenes={draft.scenes} sceneIndex={sceneIndex} format={format} t={playback.t} />
+            ) : (
+              <MapPreview scenes={draft.scenes} sceneIndex={sceneIndex} format={format} basemap={draft.basemap} t={playback.t} />
+            )}
           </div>
-          <p className="border-t border-line px-4 py-1.5 text-[11px] text-faint">Preview is approximate (MapLibre, 50m data, lower-resolution imagery). The final video is drawn by the render worker from the same storyboard and camera timeline.</p>
+          {previewSource === "google" ? (
+            <p className="border-t border-line bg-warn/10 px-4 py-1.5 text-[11px] text-warn">
+              Preview only: live Google Maps satellite imagery. Exported videos do not use Google imagery, because Google's terms do not allow it in exported videos. Video imagery credits: {(imagery.data?.attribution ?? ["NASA Blue Marble"]).map((a) => a.replace(/^Imagery: /, "")).join("; ")}.
+            </p>
+          ) : (
+            <p className="border-t border-line px-4 py-1.5 text-[11px] text-faint">Preview is approximate (MapLibre, 50m data, lower-resolution imagery). The final video is drawn by the render worker from the same storyboard, camera timeline and imagery sources.</p>
+          )}
           <div className="border-t border-line">
             <ValidationPanel errors={check.errors} warnings={check.warnings} />
           </div>

@@ -57,6 +57,13 @@ describe.skipIf(!hasMongo)("auth and projects API (real MongoDB)", () => {
     expect((await a.get("/api/v1/geo/imagery/tiles/x/1/1")).status).toBe(404);
   });
 
+  it("offers no Google Maps preview and keeps Google hosts out of the CSP without a key", async () => {
+    expect((await request(env.app).get("/api/v1/geo/imagery")).body.googlePreview).toBe(false);
+    const a = await signedInAgent(env.app);
+    expect((await a.get("/api/v1/geo/google-maps")).status).toBe(404);
+    expect((await request(env.app).get("/api/v1/health")).headers["content-security-policy"] ?? "").not.toContain("google");
+  });
+
   it("serves 3D terrain tiles only to signed-in users, and says when terrain is off", async () => {
     expect((await request(env.app).get("/api/v1/geo/imagery")).body.terrain).toBeNull();
     expect((await request(env.app).get("/api/v1/geo/terrain/3/1/1")).status).toBe(401);
