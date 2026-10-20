@@ -190,24 +190,39 @@ export interface ImageryRegion {
  * (or .png where the region's edge leaves part of a tile empty) and region.json.
  */
 export class RegionTileStore {
-  readonly regions: ImageryRegion[];
+  /** How often the folder is read again, so a region finished while the app runs is picked up without a restart. */
+  static readonly RESCAN_MS = 30_000;
+  private list: ImageryRegion[] = [];
+  private scannedAt = 0;
 
-  constructor(dir: string | null) {
-    this.regions = [];
+  constructor(private readonly dir: string | null) {
+    this.scan();
+  }
+
+  get regions(): ImageryRegion[] {
+    if (this.dir && Date.now() - this.scannedAt > RegionTileStore.RESCAN_MS) this.scan();
+    return this.list;
+  }
+
+  /** Reads every region.json in the folder. bake_sentinel2.py writes region.json last, so half-built regions are skipped. */
+  private scan(): void {
+    this.scannedAt = Date.now();
+    const dir = this.dir;
     if (!dir || !fs.existsSync(dir)) return;
+    const found: ImageryRegion[] = [];
     for (const name of fs.readdirSync(dir).sort()) {
       const meta = path.join(dir, name, "region.json");
       if (!fs.existsSync(meta)) continue;
       try {
         const r = JSON.parse(fs.readFileSync(meta, "utf8")) as Omit<ImageryRegion, "dir">;
         if (!r.attribution || !Array.isArray(r.bbox)) continue;
-        this.regions.push({ ...r, name: r.name ?? name, dir: path.join(dir, name) });
-        // Sharper regions first, so a detailed region sits on top of a wider, coarser one.
-        this.regions.sort((a, b) => b.maxZoom - a.maxZoom || a.name.localeCompare(b.name));
+        found.push({ ...r, name: r.name ?? name, dir: path.join(dir, name) });
       } catch {
         /* unreadable region.json: skip the region */
       }
     }
+    // Sharper regions first, so a detailed region sits on top of a wider, coarser one.
+    this.list = found.sort((a, b) => b.maxZoom - a.maxZoom || a.name.localeCompare(b.name));
   }
 
   getTile(z: number, x: number, y: number): { body: Buffer; region: ImageryRegion } | null {

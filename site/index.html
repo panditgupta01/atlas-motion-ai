@@ -176,19 +176,14 @@
 <section id="run">
   <div class="wrap">
     <h2>Run it yourself</h2>
-    <p class="sub">Needs Node 20+, pnpm, MongoDB, Redis, FFmpeg (libx264, libass), espeak-ng, and Chromium for the 3D view.</p>
-<pre><code>git clone https://github.com/panditgupta01/atlas-motion-ai
-cd atlas-motion-ai
-pnpm install
-bash scripts/fetch-assets.sh        # Natural Earth, fonts, Blue Marble
-cp .env.example .env                # set JWT_SECRET and service URLs
-pnpm check:env
-pnpm dev                            # API, worker and studio
-
-# optional: sharp Sentinel-2 imagery for a region
-python3 -m pip install -r scripts/imagery/requirements.txt
-python3 scripts/imagery/bake_sentinel2.py --name nepal-sentinel2 \
-  --bbox 80.0 26.3 88.4 30.5 --max-zoom 11</code></pre>
+    <p class="sub">The only thing you need is <a href="https://www.docker.com/products/docker-desktop/">Docker Desktop</a>. Or you can run it in the browser with GitHub Codespaces and install nothing.</p>
+    <div class="grid">
+      <div class="card"><h3>1. Install Docker Desktop</h3><p>Install it for Windows, Mac or Linux, then start it.</p></div>
+      <div class="card"><h3>2. Download the code</h3><p>On <a href="https://github.com/panditgupta01/atlas-motion-ai">GitHub</a>, click <b>Code</b>, then <b>Download ZIP</b>, and unzip it.</p></div>
+      <div class="card"><h3>3. Double-click start</h3><p>Windows: <code>start.bat</code>. Mac: <code>start.command</code> (the first time, right-click it and choose Open). Linux: <code>./start.sh</code>. The studio opens at localhost:4000.</p></div>
+    </div>
+    <p class="sub" style="margin-top:14px">The first start builds everything, so it takes a while. On that first run it also prepares sharp Sentinel-2 imagery of Nepal in the background. After that, it starts in seconds.</p>
+    <div class="btns"><a class="btn" href="https://codespaces.new/panditgupta01/atlas-motion-ai?quickstart=1">Open in GitHub Codespaces</a></div>
     <p class="sub" style="margin-top:14px">Full setup, environment variables and the licensing write-up are in the <a href="https://github.com/panditgupta01/atlas-motion-ai#readme">README</a> and <a href="https://github.com/panditgupta01/atlas-motion-ai/blob/main/docs/IMAGERY_LICENSING.md">docs/IMAGERY_LICENSING.md</a>.</p>
   </div>
 </section>

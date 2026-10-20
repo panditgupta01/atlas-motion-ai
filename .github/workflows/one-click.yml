@@ -1,0 +1,36 @@
+name: One-click Docker start
+
+on:
+  push:
+    branches: [main]
+    paths: ["Dockerfile", "docker-compose.yml", "start.sh", "scripts/imagery/**", "scripts/smoke-docker.sh", ".github/workflows/one-click.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  start:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start the app the way start.sh does for users
+        run: ./start.sh --no-browser
+      - name: Render a video through the running app
+        run: scripts/smoke-docker.sh before-imagery.mp4
+      - name: Wait for the Nepal imagery to be prepared
+        run: timeout 9000 docker compose --profile app wait imagery
+      - name: Render again with the prepared imagery
+        run: |
+          sleep 35   # the app rescans the imagery folder every 30 s
+          scripts/smoke-docker.sh with-imagery.mp4
+      - name: Logs
+        if: always()
+        run: docker compose --profile app logs --tail 200 api worker imagery
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-videos
+          path: "*.mp4"
+          if-no-files-found: ignore

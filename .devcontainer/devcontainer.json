@@ -1,0 +1,13 @@
+{
+  "name": "AtlasMotion AI",
+  "image": "mcr.microsoft.com/devcontainers/base:bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  "hostRequirements": { "cpus": 4, "memory": "8gb" },
+  "forwardPorts": [4000],
+  "portsAttributes": {
+    "4000": { "label": "AtlasMotion AI", "onAutoForward": "openBrowser" }
+  },
+  "postStartCommand": "bash start.sh --no-browser"
+}

@@ -8,6 +8,24 @@ prompt ─▶ planner (Claude or offline gazetteer) ─▶ storyboard (versioned
        ─▶ worker: map frames (3D terrain in headless MapLibre, or flat satellite/vector with Skia + d3-geo; Natural Earth overlays) ─▶ FFmpeg ─▶ ffprobe validation ─▶ download
 ```
 
+## Run it in one click
+
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/panditgupta01/atlas-motion-ai?quickstart=1)
+
+**On your own computer (Windows, Mac or Linux).** You need only [Docker Desktop](https://www.docker.com/products/docker-desktop/).
+
+1. Install Docker Desktop and start it.
+2. Download this repository: the green **Code** button, then **Download ZIP**, and unzip it. Or `git clone` it.
+3. Double-click the start file for your system:
+   - Windows: `start.bat`
+   - Mac: `start.command` (the first time, right-click it and choose **Open**, because macOS blocks downloaded scripts)
+   - Linux: run `./start.sh`
+4. The studio opens at http://localhost:4000. Sign up, type a prompt, review the storyboard and press Render.
+
+The first start downloads and builds everything, which takes a while. Later starts take seconds. On the first start the sharp Sentinel-2 imagery for Nepal is also prepared in the background (it downloads Copernicus data once and keeps it in a Docker volume). Videos made before it finishes use coarser imagery. `docker compose logs -f imagery` shows its progress. To stop the app, double-click `stop.bat` or `stop.command`, or run `./stop.sh`. Projects, videos and imagery are kept.
+
+**In the browser, with nothing installed.** The Codespaces button above starts the same setup on a GitHub cloud machine. Free GitHub accounts include a monthly allowance of Codespaces hours. Wait for the build to finish in the terminal, then open the forwarded port 4000 when it appears. Stop the codespace when you are done so it does not use up the allowance.
+
 ## What works today
 
 - **Storyboard planning.**

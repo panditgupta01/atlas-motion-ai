@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { createCanvas } from "@napi-rs/canvas";
 import { FORMAT_LAYOUTS, camera3dAt, defaultPitch } from "@atlas/shared";
 import { imageryConfigFromEnv, ImageryTileService, lonLatToTile, RegionTileStore, terrainConfigFromEnv, TileFetcher } from "@atlas/video-engine";
@@ -56,6 +56,23 @@ describe("prepared imagery regions", () => {
     expect(store.getTile(9, tx * 2, ty * 2)).toBeNull();
     expect(store.getTile(8, tx + 40, ty)).toBeNull();
     expect(new RegionTileStore(null).regions).toEqual([]);
+  });
+
+  it("picks up a region that finishes while the app is running", () => {
+    const d2 = fs.mkdtempSync(path.join(os.tmpdir(), "atlas-late-"));
+    vi.useFakeTimers();
+    try {
+      const store = new RegionTileStore(d2);
+      expect(store.regions).toEqual([]);
+      fs.mkdirSync(path.join(d2, "late"));
+      fs.writeFileSync(path.join(d2, "late", "region.json"), JSON.stringify({ name: "late", attribution: "Late (fixture)", bbox: [86, 27, 88, 29], minZoom: 5, maxZoom: 8 }));
+      expect(store.regions).toEqual([]);
+      vi.advanceTimersByTime(RegionTileStore.RESCAN_MS + 1);
+      expect(store.regions.map((r) => r.name)).toEqual(["late"]);
+    } finally {
+      vi.useRealTimers();
+      fs.rmSync(d2, { recursive: true, force: true });
+    }
   });
 
   it("uses the region before any provider and credits it", async () => {
