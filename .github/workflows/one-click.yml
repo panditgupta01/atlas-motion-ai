@@ -18,16 +18,23 @@ jobs:
       - name: Start the app the way start.sh does for users
         run: ./start.sh --no-browser
       - name: Render a video through the running app
-        run: scripts/smoke-docker.sh before-imagery.mp4
+        run: |
+          scripts/smoke-docker.sh before-imagery.mp4
+          echo "::notice title=First render::$(docker compose cp before-imagery.mp4 api:/tmp/before-imagery.mp4 >/dev/null && docker compose exec -T api ffprobe -v error -show_entries format=duration:stream=codec_name,width,height -of csv=p=0 /tmp/before-imagery.mp4 | tr '\n' ' ')"
       - name: Wait for the Nepal imagery to be prepared
         run: timeout 9000 docker compose --profile app wait imagery
       - name: Render again with the prepared imagery
         run: |
           sleep 35   # the app rescans the imagery folder every 30 s
           scripts/smoke-docker.sh with-imagery.mp4
+          echo "::notice title=Second render::$(docker compose cp with-imagery.mp4 api:/tmp/with-imagery.mp4 >/dev/null && docker compose exec -T api ffprobe -v error -show_entries format=duration:stream=codec_name,width,height -of csv=p=0 /tmp/with-imagery.mp4 | tr '\n' ' ')"
       - name: Logs
         if: always()
-        run: docker compose --profile app logs --tail 200 api worker imagery
+        run: |
+          docker compose --profile app logs --tail 200 api worker imagery
+          # Surface the imagery and worker logs as annotations, which show on the run's summary page.
+          docker compose --profile app logs --no-color --no-log-prefix --tail 25 imagery | sed 's/^/::notice title=imagery::/'
+          docker compose --profile app logs --no-color --no-log-prefix --tail 15 worker | cut -c1-400 | sed 's/^/::notice title=worker::/'
       - uses: actions/upload-artifact@v4
         if: always()
         with:
